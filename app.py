@@ -124,14 +124,14 @@ if transacties_file is not None and rekening_file is not None:
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
-        # GEFIXT: De naamloze kolommen worden nu foutloos als complete lijst hernoemd
-        kolommen = df_rek.columns.tolist()
-        if len(kolommen) >= 11:
-            kolommen[6] = 'Munt_Mutatie'
-            kolommen[7] = 'Bedrag_Mutatie'
-            kolommen[9] = 'Munt_Saldo'
-            kolommen[10] = 'Bedrag_Saldo'
-            df_rek.columns = kolommen
+        # GEFIXT: Hernoemen op basis van positie-index om fouten te voorkomen
+        if len(df_rek.columns) >= 11:
+            df_rek = df_rek.rename(columns={
+                df_rek.columns[6]: 'Munt_Mutatie',
+                df_rek.columns[7]: 'Bedrag_Mutatie',
+                df_rek.columns[9]: 'Munt_Saldo',
+                df_rek.columns[10]: 'Bedrag_Saldo'
+            })
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
 
