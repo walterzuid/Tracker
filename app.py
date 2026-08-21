@@ -73,9 +73,9 @@ st.caption("Peildatum: 20 augustus 2026 | Alle bedragen in EUR")
 totale_kostenbasis = 45565.75 
 totale_marktwaarde = 71860.04 
 ongerealiseerd_res = 26294.29 
-ongerealiseerd_rend = 0.5771 * 100 # 57.7% [source: 1]
-netto_resultaat = 27523.68 [source: 1]
-xirr = 0.2511 * 100 # 25.11% [source: 1]
+ongerealiseerd_rend = 0.5771 * 100 # 57.7% 
+netto_resultaat = 27523.68 
+xirr = 0.2511 * 100 # 25.11% 
 
 # KPI Kaarten weergeven
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
