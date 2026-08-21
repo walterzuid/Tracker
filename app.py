@@ -112,7 +112,7 @@ st.subheader("Visualisaties & Allocatie")
 links, rechts = st.columns(2)
 
 with links:
-    # Grafiek 1: Portefeuille-allocatie (o.b.v. Marktwaarde) [source: 1]
+    # Grafiek 1: Portefeuille-allocatie (o.b.v. Marktwaarde) 
     fig_allocatie = px.pie(
         df_gefilterd, 
         values='Marktwaarde (EUR)', 
@@ -146,4 +146,4 @@ st.dataframe(
 )
 
 # Waarschuwing uit de Excel-sheet tonen 
-st.info("⚠️ **Concentratierisico-vuistregel:** Een sector die meer dan ~25% van je aandelenportefeuille beslaat, geeft een verhoogd concentratierisico. Een sectorbrede tegenvaller raakt dan een groot deel van je vermogen.") [source: 1]
+st.info("⚠️ **Concentratierisico-vuistregel:** Een sector die meer dan ~25% van je aandelenportefeuille beslaat, geeft een verhoogd concentratierisico. Een sectorbrede tegenvaller raakt dan een groot deel van je vermogen.") 
