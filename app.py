@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import io
 import re
+import yfinance as yf
 
 # 1. Pagina-instellingen
 st.set_page_config(page_title="DeGiro Live Tracker", layout="wide", page_icon="📊")
@@ -32,6 +33,27 @@ SECTOR_MAP = {
     "SPACE EXPLORATION": "Industrie", "SPACEX": "Industrie", "SIEMENS": "Industrie",
     "ECOLAB": "Industrie", "S&P GLOBAL": "Financiële dienstverlening", "CORBION": "Grondstoffen",
     "SUSS MICROTEC": "Technologie", "INDUTRADE": "Industrie", "TAKEAWAY": "Consumentendiensten"
+}
+
+# NIEUW: Woordenlijst om DeGiro namen te koppelen aan live tickers op Yahoo Finance
+# Vul deze aan met de tickers van jouw specifieke aandelen / ETF's / Crypto
+TICKER_MAP = {
+    "SHELL PLC": "SHELL.AS",
+    "ASML HOLDING N.V.": "ASML.AS",
+    "HEINEKEN NV": "HEIA.AS",
+    "ADYEN N.V.": "ADYEN.AS",
+    "KONINKLIJKE HEIJMANS NV": "HEIJ.AS",
+    "MICROSOFT CORPORATION": "MSFT",
+    "RHEINMETALL AG": "RHM.DE",
+    "NN GROUP N.V.": "NN.AS",
+    "ASM INTERNATIONAL NV": "ASM.AS",
+    "KONINKLIJKE BAM GROEP NV": "BAMNB.AS",
+    "AIRBUS SE": "AIR.PA",
+    "ASR NEDERLAND N.V.": "ASRNL.AS",
+    "BITCOIN": "BTC-EUR",
+    "ETHEREUM": "ETH-EUR",
+    "VANECK GOLD MINERS UCITS ETF USD A": "GDX",
+    "VANECK AEX UCITS ETF": "IAEX.AS"
 }
 
 # Hulpmiddel om getallen uit DeGiro CSV netjes om te zetten naar Python-floats
@@ -87,7 +109,7 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         
         if aantal_poten == 2:
             aantallen = groep['Aantal'].tolist()
-            type_optie = groep['Type_Optie'].iloc[0]
+            type_optie = groep['Type_Optie'].iloc
             has_long = any(x > 0 for x in aantallen)
             has_short = any(x < 0 for x in aantallen)
             
@@ -98,7 +120,7 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         elif aantal_poten >= 3:
             strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
         else:
-            row_opt = groep.iloc[0]
+            row_opt = groep.iloc
             richting = "Long" if row_opt['Aantal'] > 0 else "Short"
             strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
             
@@ -113,6 +135,22 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         gecombineerde_strategieen.append(data_item)
         
     return pd.DataFrame(gecombineerde_strategieen)
+
+# NIEUW: Live koers ophaalfunctie via Yahoo Finance (yfinance)
+@st.cache_data(ttl=3600) # Koersen worden maximaal 1 uur gecachet om API-limieten te omzeilen
+def haal_live_koers(product_naam):
+    product_naam = str(product_naam).strip()
+    if product_naam in TICKER_MAP:
+        ticker_symbol = TICKER_MAP[product_naam]
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            # Haal de meest recente sluitings/live prijs op uit de geschiedenis
+            data = ticker.history(period="1d")
+            if not data.empty:
+                return float(data['Close'].iloc[-1])
+        except Exception:
+            return None
+    return None
 
 # 3. CONTROLE: Zijn de bestanden geüpload?
 if transacties_file is not None and rekening_file is not None:
@@ -138,7 +176,6 @@ if transacties_file is not None and rekening_file is not None:
         df_tx['Transactiekosten en/of kosten van derden EUR'] = df_tx['Transactiekosten en/of kosten van derden EUR'].apply(maak_numeriek)
         df_tx['Totaal EUR'] = df_tx['Totaal EUR'].apply(maak_numeriek)
 
-        # SLIMME CRYPTO-FIX: Herleid het aantal als DeGiro het aantal leeg laat
         aantal_gecorrigeerd = []
         for idx, row in df_tx.iterrows():
             prod_upper = str(row['Product']).upper()
@@ -159,7 +196,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = str(groep['ISIN'].iloc[0]) if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = str(groep['ISIN'].iloc) if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -185,9 +222,25 @@ if transacties_file is not None and rekening_file is not None:
                 continue
 
             if abs(huidig_aantal) > 0.000001:
+                # NIEUW: Live koers ophalen en marktwaarde + ongerealiseerd resultaat berekenen!
+                actuele_koers = haal_live_koer(product)
+                kostenbasis = abs(totale_aankopen_eur)
+                
+                if actuele_koers is not None:
+                    marktwaarde = huidig_aantal * actuele_koers
+                    ongerealiseerd_res = marktwaarde - kostenbasis
+                    ongerealiseerd_rend = (ongerealiseerd_res / kostenbasis * 100) if kostenbasis > 0 else 0.0
+                else:
+                    marktwaarde = 0.0  # Geen koers gevonden
+                    ongerealiseerd_res = 0.0
+                    ongerealiseerd_rend = 0.0
+                
                 open_posities_lijst.append({
                     "Product": product, "ISIN": isin, "Huidig aantal": huidig_aantal,
-                    "Kostenbasis (EUR)": abs(totale_aankopen_eur), "Type": product_type, "Sector": sector
+                    "Kostenbasis (EUR)": kostenbasis, "Actuele Koers": actuele_koers if actuele_koers else 0.0,
+                    "Marktwaarde (EUR)": marktwaarde, "Ongerealiseerd resultaat (EUR)": ongerealiseerd_res,
+                    "Ongerealiseerd rendement (%)": ongerealiseerd_rend,
+                    "Type": product_type, "Sector": sector
                 })
             else:
                 gesloten_posities_lijst.append({
@@ -214,25 +267,31 @@ if transacties_file is not None and rekening_file is not None:
         # ----------------------------------------------------
         if pagina == "🔮 Open Posities & Dashboard":
             st.markdown("---")
-            kpi1, kpi2, kpi3 = st.columns(3)
-            totale_kostenbasis = df_posities['Kostenbasis (EUR)'].sum() if not df_posities.empty else 0.0
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             
-            kpi1.metric(label="📉 Totale Kostenbasis (Open Posities)", value=f"€ {totale_kostenbasis:,.2f}")
-            kpi2.metric(label="💰 Totaal Netto Dividend Ontvangen", value=f"€ {totaal_netto_dividend:,.2f}")
-            kpi3.metric(label="📦 Aantal Open Producten", value=len(df_posities) if not df_posities.empty else 0)
+            totale_kostenbasis = df_posities['Kostenbasis (EUR)'].sum() if not df_posities.empty else 0.0
+            totale_marktwaarde = df_posities['Marktwaarde (EUR)'].sum() if not df_posities.empty else 0.0
+            totaal_ongerealiseerd = totale_marktwaarde - totale_kostenbasis
+            totaal_ongerealiseerd_rend = (totaal_ongerealiseerd / totale_kostenbasis * 100) if totale_kostenbasis > 0 else 0.0
+            
+            kpi1.metric(label="📉 Totale Kostenbasis", value=f"€ {totale_kostenbasis:,.2f}")
+            kpi2.metric(label="💰 Actuele Marktwaarde Live", value=f"€ {totale_marktwaarde:,.2f}")
+            kpi3.metric(label="📈 Live Ongerealiseerd Resultaat", value=f"€ {totaal_ongerealiseerd:,.2f}", delta=f"{totaal_ongerealiseerd_rend:.2f}%")
+            kpi4.metric(label="💶 Netto Dividend", value=f"€ {totaal_netto_dividend:,.2f}")
 
             if not df_posities.empty:
                 soorten_in_portefeuille = df_posities['Type'].unique()
                 gekozen_types = st.sidebar.multiselect("Filter op Type:", options=soorten_in_portefeuille, default=soorten_in_portefeuille)
                 df_gefilterd = df_posities[df_posities['Type'].isin(gekozen_types)]
                 
-                st.subheader("Visualisaties & Allocatie")
+                st.subheader("Visualisaties & Live Allocatie")
                 links, rechts = st.columns(2)
                 
                 with links:
+                    # Nu gesorteerd op echte actuele Live Marktwaarde!
                     fig_allocatie = px.pie(
-                        df_gefilterd, values='Kostenbasis (EUR)', names='Product', 
-                        title='Portefeuille-allocatie (o.b.v. Kostenbasis)', hole=0.4
+                        df_gefilterd[df_gefilterd['Marktwaarde (EUR)'] > 0], values='Marktwaarde (EUR)', names='Product', 
+                        title='Portefeuille-allocatie (Live Marktwaarde)', hole=0.4
                     )
                     st.plotly_chart(fig_allocatie, use_container_width=True)
                     
@@ -259,8 +318,18 @@ if transacties_file is not None and rekening_file is not None:
                     st.info("Geen open optieposities gedetecteerd.")
                 
                 st.markdown("---")
-                st.subheader("📋 Lopende Posities (Gehaald uit je CSV)")
-                st.dataframe(df_gefilterd, use_container_width=True, hide_index=True)
+                st.subheader("📋 Lopende Posities met Live Koersen (Yahoo Finance)")
+                st.dataframe(
+                    df_gefilterd[['Product', 'ISIN', 'Huidig aantal', 'Kostenbasis (EUR)', 'Actuele Koers', 'Marktwaarde (EUR)', 'Ongerealiseerd resultaat (EUR)', 'Ongerealiseerd rendement (%)', 'Sector']],
+                    column_config={
+                        "Kostenbasis (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                        "Actuele Koers": st.column_config.NumberColumn(format="€ %.4f"),
+                        "Marktwaarde (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                        "Ongerealiseerd resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                        "Ongerealiseerd rendement (%)": st.column_config.NumberColumn(format="%.2f %%")
+                    },
+                    use_container_width=True, hide_index=True
+                )
 
         # ----------------------------------------------------
         # PAGINA 2: GESLOTEN TRANSACTIES
