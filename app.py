@@ -10,6 +10,7 @@ st.set_page_config(page_title="DeGiro Portefeuille Tracker", layout="wide", page
 # Om het script direct te laten werken, laden we de belangrijkste data in via tekst-strings.
 @st.cache_data
 def laad_posities_data():
+    # Let op de extra aanhalingstekens om "MARVELL TECHNOLOGY, INC."
     aandelen_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
 GB00BP6MXD84,SHELL PLC,70,1831.6,2795.8,964.2,Energie
 NL0010273215,ASML HOLDING N.V.,3,1520.5,4522.8,3002.3,Technologie
@@ -21,7 +22,7 @@ US5949181045,MICROSOFT CORPORATION,7,2814.95,2919.79,104.84,Technologie
 DK0061412772,CADELER A/S,300,1427.35,1513.61,86.26,Industrie
 DE0007030009,RHEINMETALL AG,4,2534.5,4725.6,2191.1,Industrie
 NL0010773842,NN GROUP N.V.,30,1373.8,2313.6,939.8,Financiële dienstverlening
-US5738741041,MARVELL TECHNOLOGY, INC.,10,648.97,2043.49,1394.52,Technologie
+US5738741041,"MARVELL TECHNOLOGY, INC.",10,648.97,2043.49,1394.52,Technologie
 NL0000334118,ASM INTERNATIONAL NV,4,1835.4,3288.8,1453.4,Technologie
 CH0360826991,COMET HOLDING AG,5,1109.06,1867.09,758.03,Technologie
 CA06849F1080,BARRICK MINING CORPORATION,75,1275.88,2915.77,1639.89,Grondstoffen
