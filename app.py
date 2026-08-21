@@ -59,28 +59,81 @@ def parse_optie_naam(naam):
         return True, aandeel, type_optie, strike, expiratie
     return False, None, None, 0.0, None
 
+# Centrale functie om optiestrategieën te groeperen en het rendement te berekenen
+def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
+    optie_details = []
+    for idx, row in df_opties_raw.iterrows():
+        is_optie, aandeel, type_optie, strike, expiratie = parse_optie_naam(row['Product'])
+        if is_optie:
+            optie_details.append({
+                "Product": row['Product'], "Aandeel": aandeel, "Type_Optie": type_optie,
+                "Strike": strike, "Expiratie": expiratie, 
+                "Investering": row['Kostenbasis (EUR)'] if is_open_pagina else row['Totale Aankopen (EUR)'],
+                "Resultaat": 0.0 if is_open_pagina else row['Gerealiseerd Resultaat (EUR)'],
+                "Aantal": row['Huidig aantal'] if is_open_pagina else 1.0
+            })
+    
+    if not optie_details:
+        return pd.DataFrame()
+        
+    df_parsed = pd.DataFrame(optie_details)
+    gecombineerde_strategieen = []
+    
+    for (aandeel, expiratie), groep in df_parsed.groupby(['Aandeel', 'Expiratie']):
+        groep = groep.sort_values('Strike')
+        aantal_poten = len(groep)
+        totale_kosten = groep['Investering'].sum()
+        totaal_resultaat = groep['Resultaat'].sum()
+        strikes_str = "/".join([f"{s:.2f}" for s in groep['Strike'].tolist()])
+        
+        if aantal_poten == 2:
+            aantallen = groep['Aantal'].tolist()
+            type_optie = groep['Type_Optie'].iloc
+            has_long = any(x > 0 for x in aantallen)
+            has_short = any(x < 0 for x in aantallen)
+            
+            if has_long and has_short:
+                strategie_naam = f"🟢 {type_optie} Spread ({strikes_str})"
+            else:
+                strategie_naam = f"📦 {aandeel} Custom Spread ({strikes_str})"
+        elif aantal_poten >= 3:
+            strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
+        else:
+            row_opt = groep.iloc
+            richting = "Long" if row_opt['Aantal'] > 0 else "Short"
+            strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
+            
+        data_item = {
+            "Onderliggend": aandeel, "Expiratie": expiratie, "Herkende Strategie": strategie_naam,
+            "Aantal Contracten": aantal_poten, "Totale Aankopen/Investering (EUR)": totale_kosten
+        }
+        if not is_open_pagina:
+            data_item["Gerealiseerd Resultaat (EUR)"] = totaal_resultaat
+            # Bereken het rendement in procenten (Winst of Verlies / Totale Aankopen)
+            data_item["Rendement (%)"] = (totaal_resultaat / totale_kosten * 100) if totale_kosten > 0 else 0.0
+            
+        gecombineerde_strategieen.append(data_item)
+        
+    return pd.DataFrame(gecombineerde_strategieen)
+
 # 3. CONTROLE: Zijn de bestanden geüpload?
 if transacties_file is not None and rekening_file is not None:
     try:
-        # Bestanden inlezen
         df_tx = pd.read_csv(transacties_file, sep=',', encoding='utf-8')
         df_rek = pd.read_csv(rekening_file, sep=',', encoding='utf-8')
-        
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
-        # DeGiro's indeling hermappen naar logische namen
         kolommen = df_rek.columns.tolist()
         if len(kolommen) >= 11:
-            kolommen[7] = 'Munt_Mutatie'
-            kolommen[8] = 'Bedrag_Mutatie'
-            kolommen[9] = 'Munt_Saldo'
-            kolommen[10] = 'Bedrag_Saldo'
+            kolommen = 'Munt_Mutatie'
+            kolommen = 'Bedrag_Mutatie'
+            kolommen = 'Munt_Saldo'
+            kolommen = 'Bedrag_Saldo'
             df_rek.columns = kolommen
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
 
-        # --- REKENEN: TRANSACTIES VERWERKEN ---
         df_tx['Datum_Tijd'] = pd.to_datetime(df_tx['Datum'] + ' ' + df_tx['Tijd'], format='%d-%m-%Y %H:%M', errors='coerce')
         df_tx = df_tx.sort_values('Datum_Tijd').reset_index(drop=True)
         
@@ -89,7 +142,6 @@ if transacties_file is not None and rekening_file is not None:
         df_tx['Transactiekosten en/of kosten van derden EUR'] = df_tx['Transactiekosten en/of kosten van derden EUR'].apply(maak_numeriek)
         df_tx['Totaal EUR'] = df_tx['Totaal EUR'].apply(maak_numeriek)
 
-        # Split data in open en gesloten posities per product
         open_posities_lijst = []
         gesloten_posities_lijst = []
         
@@ -100,7 +152,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -134,7 +186,8 @@ if transacties_file is not None and rekening_file is not None:
                 gesloten_posities_lijst.append({
                     "Product": product, "ISIN": isin, "Totale Aankopen (EUR)": abs(totale_aankopen_eur),
                     "Totale Verkopen (EUR)": abs(totale_verkopen_eur), "Betaalde Kosten (EUR)": abs(totaal_kosten),
-                    "Gerealiseerd Resultaat (EUR)": netto_resultaat_tx, "Type": product_type, "Sector": sector
+                    "Gerealiseerd Resultaat (EUR)": netto_resultaat_tx, "Type": product_type, "Sector": sector,
+                    "Huidig aantal": 0.0
                 })
                 
         df_posities = pd.DataFrame(open_posities_lijst)
@@ -187,66 +240,28 @@ if transacties_file is not None and rekening_file is not None:
                     else:
                         st.info("Geen dividendgegevens gevonden.")
 
-                # --- SLIMME OPTIESTRATEGIE HERKENNER (WATERDICHT) ---
+                # --- SLIMME OPTIESTRATEGIE HERKENNER (OPEN POSITIES) ---
                 st.markdown("---")
                 st.subheader("🧠 Geautomatiseerde Optiestrategie Herkenner (Open Spreads)")
                 df_opties_open = df_gefilterd[df_gefilterd['Type'] == 'Optie'].copy()
                 
                 if not df_opties_open.empty:
-                    optie_details = []
-                    for idx, row in df_opties_open.iterrows():
-                        is_optie, aandeel, type_optie, strike, expiratie = parse_optie_naam(row['Product'])
-                        if is_optie:
-                            optie_details.append({
-                                "Product": row['Product'], "Aandeel": aandeel, "Type_Optie": type_optie,
-                                "Strike": strike, "Expiratie": expiratie, "Kostenbasis": row['Kostenbasis (EUR)'],
-                                "Aantal": row['Huidig aantal']
-                            })
-                    
-                    if optie_details:
-                        df_opties_parsed = pd.DataFrame(optie_details)
-                        gecombineerde_strategieen = []
-                        for (aandeel, expiratie), groep in df_opties_parsed.groupby(['Aandeel', 'Expiratie']):
-                            groep = groep.sort_values('Strike')
-                            aantal_poten = len(groep)
-                            totale_kosten = groep['Kostenbasis'].sum()
-                            strikes_str = "/".join([f"{s:.2f}" for s in groep['Strike'].tolist()])
-                            
-                            if aantal_poten == 2:
-                                aantallen = groep['Aantal'].tolist()
-                                type_optie = groep['Type_Optie'].iloc[0]
-                                # WATERDICHTE LOGICA: Controleer of de tekens verschillen (Long en Short)
-                                has_long = any(x > 0 for x in aantallen)
-                                has_short = any(x < 0 for x in aantallen)
-                                
-                                if has_long and has_short:
-                                    strategie_naam = f"🟢 {type_optie} Spread ({strikes_str})"
-                                else:
-                                    strategie_naam = f"📦 {aandeel} Custom Combination ({strikes_str})"
-                            elif aantal_poten >= 3:
-                                strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
-                            else:
-                                row_opt = groep.iloc[0]
-                                richting = "Long" if row_opt['Aantal'] > 0 else "Short"
-                                strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
-                                
-                            gecombineerde_strategieen.append({
-                                "Onderliggend": aandeel, "Expiratie": expiratie, "Herkende Strategie": strategie_naam,
-                                "Aantal Contracten": aantal_poten, "Totale Kostenbasis (EUR)": totale_kosten
-                            })
-                        st.dataframe(pd.DataFrame(gecombineerde_strategieen), use_container_width=True, hide_index=True)
+                    df_open_spreads = groepeer_optiestrategieen(df_opties_open, is_open_pagina=True)
+                    if not df_open_spreads.empty:
+                        st.dataframe(df_open_spreads, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Geen open optieposities gedetecteerd.")
                 
                 st.markdown("---")
                 st.subheader("📋 Lopende Posities (Gehaald uit je CSV)")
                 st.dataframe(df_gefilterd, use_container_width=True, hide_index=True)
 
         # ----------------------------------------------------
-        # PAGINA 2: GESLOTEN TRANSACTIES
+        # PAGINA 2: GESLOTEN TRANSACTIES (NU OOK MET OPTIESTRATEGIEËN)
         # ----------------------------------------------------
         elif pagina == "💰 Gesloten Transacties":
             st.markdown("---")
             st.subheader("🏁 Volledig Gesloten Posities (Historisch resultaat)")
-            st.markdown("Dit overzicht toont alle aandelen en opties die je hebt verkocht of die waardeloos zijn afgelopen:")
             
             if not df_gesloten.empty:
                 totaal_gerealiseerd = df_gesloten['Gerealiseerd Resultaat (EUR)'].sum()
@@ -257,17 +272,50 @@ if transacties_file is not None and rekening_file is not None:
                     delta_color="normal" if totaal_gerealiseerd >= 0 else "inverse"
                 )
                 
-                st.dataframe(
-                    df_gesloten,
-                    column_config={
-                        "Totale Aankopen (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
-                        "Totale Verkopen (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
-                        "Betaalde Kosten (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
-                        "Gerealiseerd Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f")
-                    },
-                    use_container_width=True, hide_index=True
-                )
+                # Splits de gesloten posities in gewone producten en opties
+                df_gesloten_aandelen = df_gesloten[df_gesloten['Type'] != 'Optie'].copy()
+                df_gesloten_opties_raw = df_gesloten[df_gesloten['Type'] == 'Optie'].copy()
                 
+                # --- SENSE 1: TOON DE HERKENDE HISTORISCHE OPTIESTRATEGIEËN ---
+                st.subheader("🧠 Historisch Gesloten Optiestrategieën & Rendement")
+                if not df_gesloten_opties_raw.empty:
+                    df_gesloten_spreads = groepeer_optiestrategieen(df_gesloten_opties_raw, is_open_pagina=False)
+                    
+                    if not df_gesloten_spreads.empty:
+                        st.dataframe(
+                            df_gesloten_spreads,
+                            column_config={
+                                "Totale Aankopen/Investering (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                                "Gerealiseerd Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                                "Rendement (%)": st.column_config.NumberColumn(format="%.2f %%")
+                            },
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                else:
+                    st.info("Geen gesloten optieposities gevonden.")
+                
+                # --- SENSE 2: TOON DE NORMALE GESLOTEN AANDELEN / ETFS ---
+                st.markdown("---")
+                st.subheader("📈 Gesloten Aandelen, ETF's & Crypto")
+                if not df_gesloten_aandelen.empty:
+                    # Bereken ook direct het rendement voor aandelen
+                    df_gesloten_aandelen['Rendement (%)'] = (df_gesloten_aandelen['Gerealiseerd Resultaat (EUR)'] / df_gesloten_aandelen['Totale Aankopen (EUR)'] * 100)
+                    
+                    st.dataframe(
+                        df_gesloten_aandelen[['Product', 'ISIN', 'Totale Aankopen (EUR)', 'Totale Verkopen (EUR)', 'Betaalde Kosten (EUR)', 'Gerealiseerd Resultaat (EUR)', 'Rendement (%)', 'Sector']],
+                        column_config={
+                            "Totale Aankopen (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                            "Totale Verkopen (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                            "Betaalde Kosten (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                            "Gerealiseerd Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+                            "Rendement (%)": st.column_config.NumberColumn(format="%.2f %%")
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                # --- SENSE 3: GRAFIEK VAN COMBINATIE VAN ALLES ---
                 st.markdown("---")
                 st.subheader("📊 Gerealiseerde Resultaten per Product")
                 fig_gesloten = px.bar(
@@ -277,7 +325,7 @@ if transacties_file is not None and rekening_file is not None:
                 )
                 st.plotly_chart(fig_gesloten, use_container_width=True)
             else:
-                st.info("Geen volledig gesloten posities gevonden in je transactiebestand.")
+                st.info("Geen volledig gesloten posities gevonden.")
 
     except Exception as e:
         st.error(f"Er ging iets mis bij het verwerken van de bestanden: {e}")
