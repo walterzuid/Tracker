@@ -82,7 +82,7 @@ kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 kpi1.metric(label="💰 Totale Marktwaarde", value=f"€ {totale_marktwaarde:,.2f}")
 kpi2.metric(label="📉 Kostenbasis", value=f"€ {totale_kostenbasis:,.2f}")
 kpi3.metric(label="📈 Ongerealiseerd Resultaat", value=f"€ {ongerealiseerd_res:,.2f}", delta=f"{ongerealiseerd_rend:.2f}%")
-kpi4.metric(label="⏱️ Jaarlijks Rendement (XIRR)", value=f"{xirr:.2f}%") [source: 1]
+kpi4.metric(label="⏱️ Jaarlijks Rendement (XIRR)", value=f"{xirr:.2f}%") 
 
 st.markdown("---")
 
@@ -123,7 +123,7 @@ with links:
     st.plotly_chart(fig_allocatie, use_container_width=True)
 
 with rechts:
-    # Grafiek 2: Sector-allocatie [source: 1]
+    # Grafiek 2: Sector-allocatie 
     df_sector = df_gefilterd.groupby('Sector')['Marktwaarde (EUR)'].sum().reset_index()
     fig_sector = px.bar(
         df_sector, 
@@ -145,5 +145,5 @@ st.dataframe(
     hide_index=True
 )
 
-# Waarschuwing uit de Excel-sheet tonen [source: 1]
+# Waarschuwing uit de Excel-sheet tonen 
 st.info("⚠️ **Concentratierisico-vuistregel:** Een sector die meer dan ~25% van je aandelenportefeuille beslaat, geeft een verhoogd concentratierisico. Een sectorbrede tegenvaller raakt dan een groot deel van je vermogen.") [source: 1]
