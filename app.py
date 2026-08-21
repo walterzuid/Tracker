@@ -36,7 +36,9 @@ SECTOR_MAP = {
 }
 
 # Woordenlijst om DeGiro namen te koppelen aan live tickers op Yahoo Finance
+# Uitgebreide woordenlijst om DeGiro-namen te koppelen aan Yahoo Finance
 TICKER_MAP = {
+    # --- AANDELEN ---
     "SHELL PLC": "SHELL.AS",
     "ASML HOLDING N.V.": "ASML.AS",
     "HEINEKEN NV": "HEIA.AS",
@@ -49,11 +51,41 @@ TICKER_MAP = {
     "KONINKLIJKE BAM GROEP NV": "BAMNB.AS",
     "AIRBUS SE": "AIR.PA",
     "ASR NEDERLAND N.V.": "ASRNL.AS",
+    "EMERSON ELECTRIC CO": "EMR",
+    "GENMAB A/S": "GMAB.CO",
+    "NUCOR CORP": "NUE",
+    "CORBION N.V. CLASS C": "CRBN.AS",
+    "SUSS MICROTEC SE": "SMHN.DE",
+    "INDUTRADE AB": "INDT.ST",
+    "CADELER A/S": "CADLR.OL",
+    "COMET HOLDING AG": "COTN.SW",
+    "MARVELL TECHNOLOGY, INC.": "MRVL",
+    "BARRICK MINING CORPORATION": "GOLD",
+    "IMCD N.V.": "IMCD.AS",
+    "NSI NV": "NSI.AS",
+    "EXOR NV": "EXO.AS",
+    "THE MAGNUM ICE CREAM COMPANY N.V.": "UNA.AS", # Gekoppeld aan Unilever mocht dit een spin-off zijn
+    "ONDAS INC": "ONDS",
+    "ECOLAB INC.": "ECL",
+    "S&P GLOBAL INC": "SPGI",
+    
+    # --- CRYPTO ---
     "BITCOIN": "BTC-EUR",
     "ETHEREUM": "ETH-EUR",
+    
+    # --- ETF'S (Trackers) ---
     "VANECK GOLD MINERS UCITS ETF USD A": "GDX",
-    "VANECK AEX UCITS ETF": "IAEX.AS"
+    "VANECK DEFENSE UCITS ETF": "DFNS.AS",
+    "VANECK S&P GLOBAL MINING UCITS ETF": "WMIN.AS",
+    "VANECK MS DEVELOPED MARKETS DIV LEAD UCITS ETF": "TDIV.AS",
+    "VANECK SEMICONDUCTOR UCITS ETF USD A": "SMH",
+    "GLOBAL X SILVER MINERS UCITS ETF USD ACC": "SILV.L",
+    "VANECK AEX UCITS ETF": "IAEX.AS",
+    "VANECK URANIUM AND NUCLEAR TECHNOLOGIES UCITS ETF": "NUCL.DE",
+    "VANECK RARE EARTH AND STRATEGIC METALS UCITS ETF": "REMX",
+    "VANECK MS DEVELOPED MARKETS DIV LEAD": "TDIV.AS"
 }
+
 
 # Hulpmiddel om getallen uit DeGiro CSV netjes om te zetten naar Python-floats
 def maak_numeriek(val):
