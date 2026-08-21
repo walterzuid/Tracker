@@ -7,7 +7,7 @@ import re
 # 1. Pagina-instellingen
 st.set_page_config(page_title="DeGiro Live Tracker", layout="wide", page_icon="📊")
 
-# NIEUW: Paginamenu aanmaken in de zijbalk
+# Paginamenu aanmaken in de zijbalk
 st.sidebar.title("📱 Menu")
 pagina = st.sidebar.selectbox("Kies een pagina:", ["🔮 Open Posities & Dashboard", "💰 Gesloten Transacties"])
 
@@ -81,7 +81,7 @@ if transacties_file is not None and rekening_file is not None:
         df_tx['Transactiekosten en/of kosten van derden EUR'] = df_tx['Transactiekosten en/of kosten van derden EUR'].apply(maak_numeriek)
         df_tx['Totaal EUR'] = df_tx['Totaal EUR'].apply(maak_numeriek)
 
-        # Splid data in open en gesloten posities per product
+        # Split data in open en gesloten posities per product
         open_posities_lijst = []
         gesloten_posities_lijst = []
         
@@ -90,14 +90,13 @@ if transacties_file is not None and rekening_file is not None:
             totale_aankopen_eur = groep[groep['Aantal'] > 0]['Waarde EUR'].sum()
             totale_verkopen_eur = groep[groep['Aantal'] < 0]['Waarde EUR'].sum()
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
-            netto_resultaat_tx = groep['Totaal EUR'].sum() # Geeft het gerealiseerde resultaat bij sluiting
+            netto_resultaat_tx = groep['Totaal EUR'].sum()
             
             isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
             
-            # Producttype bepalen
             if is_optie:
                 product_type = "Optie"
                 sector = "Optie"
@@ -118,32 +117,21 @@ if transacties_file is not None and rekening_file is not None:
             if "SUBSCRIPTION" in product_str:
                 continue
 
-            # Als het huidige aantal groter is dan 0, staat de positie nog open
             if abs(huidig_aantal) > 0.000001:
                 open_posities_lijst.append({
-                    "Product": product,
-                    "ISIN": isin,
-                    "Huidig aantal": huidig_aantal,
-                    "Kostenbasis (EUR)": abs(totale_aankopen_eur),
-                    "Type": product_type,
-                    "Sector": sector
+                    "Product": product, "ISIN": isin, "Huidig aantal": huidig_aantal,
+                    "Kostenbasis (EUR)": abs(totale_aankopen_eur), "Type": product_type, "Sector": sector
                 })
             else:
-                # Als het huidige aantal 0 is, is de positie gesloten!
-                # Gerealiseerd resultaat is de optelsom van alle cashstromen van dit product
                 gesloten_posities_lijst.append({
-                    "Product": product,
-                    "ISIN": isin,
-                    "Totale Aankopen (EUR)": abs(totale_aankopen_eur),
-                    "Totale Verkopen (EUR)": abs(totale_verkopen_eur),
-                    "Betaalde Kosten (EUR)": abs(totaal_kosten),
-                    "Gerealiseerd Resultaat (EUR)": netto_resultaat_tx,
-                    "Type": product_type,
-                    "Sector": sector
+                    "Product": product, "ISIN": isin, "Totale Aankopen (EUR)": abs(totale_aankopen_eur),
+                    "Totale Verkopen (EUR)": abs(totale_verkopen_eur), "Betaalde Kosten (EUR)": abs(totaal_kosten),
+                    "Gerealiseerd Resultaat (EUR)": netto_resultaat_tx, "Type": product_type, "Sector": sector
                 })
                 
         df_posities = pd.DataFrame(open_posities_lijst)
-        df_gesloten = pd.DataFrame(gesloten_posities_lijst)        # --- BEREKENING 2: DIVIDENDEN FILTEREN ---
+        df_gesloten = pd.DataFrame(gesloten_posities_lijst)
+        # --- BEREKENING 2: DIVIDENDEN FILTEREN ---
         df_rek['Omschrijving'] = df_rek['Omschrijving'].astype(str)
         df_rek['Mutatie_Num'] = df_rek['Mutatie'].apply(maak_numeriek)
         
@@ -157,7 +145,6 @@ if transacties_file is not None and rekening_file is not None:
         # PAGINA 1: OPEN POSITIES & DASHBOARD
         # ----------------------------------------------------
         if pagina == "🔮 Open Posities & Dashboard":
-            # --- INTERFACE: HOOFD-KPI'S ---
             st.markdown("---")
             kpi1, kpi2, kpi3 = st.columns(3)
             totale_kostenbasis = df_posities['Kostenbasis (EUR)'].sum() if not df_posities.empty else 0.0
@@ -220,16 +207,15 @@ if transacties_file is not None and rekening_file is not None:
                             if aantal_poten == 2:
                                 aantallen = groep['Aantal'].tolist()
                                 type_optie = groep['Type_Optie'].iloc
-                                if aantallen > 0 and aantallen < 0:
-                                    strategie_naam = f"🟢 Bull {type_optie} Spread ({strikes_str})"
-                                elif aantallen < 0 and aantallen > 0:
-                                    strategie_naam = f"🔴 Bear {type_optie} Spread ({strikes_str})"
+                                # HIER IS DE FIX: We kijken nu naar de individuele elementen in de lijst
+                                if (aantallen[0] > 0 and aantallen[1] < 0) or (aantallen[0] < 0 and aantallen[1] > 0):
+                                    strategie_naam = f"🟢 {type_optie} Spread ({strikes_str})"
                                 else:
                                     strategie_naam = f"📦 {aandeel} Custom Spread ({strikes_str})"
                             elif aantal_poten >= 3:
                                 strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
                             else:
-                                row_opt = groep.iloc
+                                row_opt = groep.iloc[0]
                                 richting = "Long" if row_opt['Aantal'] > 0 else "Short"
                                 strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
                                 
@@ -252,10 +238,7 @@ if transacties_file is not None and rekening_file is not None:
             st.markdown("Dit overzicht toont alle aandelen en opties die je hebt verkocht of die waardeloos zijn afgelopen:")
             
             if not df_gesloten.empty:
-                # Bereken totale winst/verlies van gesloten posities
                 totaal_gerealiseerd = df_gesloten['Gerealiseerd Resultaat (EUR)'].sum()
-                
-                # KPI kaart voor gerealiseerde resultaten
                 st.metric(
                     label="📈 Totaal Gerealiseerd Resultaat (Winst / Verlies)", 
                     value=f"€ {totaal_gerealiseerd:,.2f}",
@@ -263,7 +246,6 @@ if transacties_file is not None and rekening_file is not None:
                     delta_color="normal" if totaal_gerealiseerd >= 0 else "inverse"
                 )
                 
-                # Mooie geformatteerde tabel tonen
                 st.dataframe(
                     df_gesloten,
                     column_config={
@@ -272,17 +254,14 @@ if transacties_file is not None and rekening_file is not None:
                         "Betaalde Kosten (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
                         "Gerealiseerd Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f")
                     },
-                    use_container_width=True,
-                    hide_index=True
+                    use_container_width=True, hide_index=True
                 )
                 
-                # Voeg een handige grafiek toe met je grootste winnaars en verliezers
                 st.markdown("---")
                 st.subheader("📊 Gerealiseerde Resultaten per Product")
                 fig_gesloten = px.bar(
                     df_gesloten, x='Product', y='Gerealiseerd Resultaat (EUR)',
-                    title="Winst / Verlies per gesloten positie",
-                    color='Gerealiseerd Resultaat (EUR)',
+                    title="Winst / Verlies per gesloten positie", color='Gerealiseerd Resultaat (EUR)',
                     color_continuous_scale=px.colors.sequential.RdBu_r
                 )
                 st.plotly_chart(fig_gesloten, use_container_width=True)
