@@ -58,7 +58,6 @@ def parse_optie_naam(naam):
         expiratie = match.group(4).strip()
         return True, aandeel, type_optie, strike, expiratie
     return False, None, None, 0.0, None
-
 # Centrale functie om optiestrategieën te groeperen en het rendement te berekenen
 def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
     optie_details = []
@@ -99,7 +98,7 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         elif aantal_poten >= 3:
             strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
         else:
-            row_opt = groep.iloc[0] # GEFIXT: .iloc[0] toegevoegd
+            row_opt = groep.iloc[0]
             richting = "Long" if row_opt['Aantal'] > 0 else "Short"
             strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
             
@@ -124,7 +123,6 @@ if transacties_file is not None and rekening_file is not None:
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
-        # Hernoemen direct op basis van de echte string-namen in je CSV
         df_rek = df_rek.rename(columns={
             'Mutatie': 'Munt_Mutatie', 'Unnamed: 8': 'Bedrag_Mutatie',
             'Saldo': 'Munt_Saldo', 'Unnamed: 10': 'Bedrag_Saldo'
@@ -135,10 +133,21 @@ if transacties_file is not None and rekening_file is not None:
         df_tx['Datum_Tijd'] = pd.to_datetime(df_tx['Datum'] + ' ' + df_tx['Tijd'], format='%d-%m-%Y %H:%M', errors='coerce')
         df_tx = df_tx.sort_values('Datum_Tijd').reset_index(drop=True)
         
-        df_tx['Aantal'] = df_tx['Aantal'].apply(maak_numeriek)
         df_tx['Waarde EUR'] = df_tx['Waarde EUR'].apply(maak_numeriek)
+        df_tx['Koers'] = df_tx['Koers'].apply(maak_numeriek)
         df_tx['Transactiekosten en/of kosten van derden EUR'] = df_tx['Transactiekosten en/of kosten van derden EUR'].apply(maak_numeriek)
         df_tx['Totaal EUR'] = df_tx['Totaal EUR'].apply(maak_numeriek)
+
+        # SLIMME CRYPTO-FIX: Herleid het aantal als DeGiro het aantal leeg laat
+        aantal_gecorrigeerd = []
+        for idx, row in df_tx.iterrows():
+            prod_upper = str(row['Product']).upper()
+            if prod_upper in ["BITCOIN", "ETHEREUM"] and (pd.isna(row['Aantal']) or row['Aantal'] == "" or maak_numeriek(row['Aantal']) == 0.0):
+                berekend_aantal = abs(row['Waarde EUR']) / row['Koers'] if row['Koers'] > 0 else 0.0
+                aantal_gecorrigeerd.append(berekend_aantal)
+            else:
+                aantal_gecorrigeerd.append(maak_numeriek(row['Aantal']))
+        df_tx['Aantal'] = aantal_gecorrigeerd
 
         open_posities_lijst = []
         gesloten_posities_lijst = []
@@ -150,8 +159,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            # GEFIXT: .iloc[0] correct gebruikt om de tekstwaarde te pakken
-            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = str(groep['ISIN'].iloc[0]) if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -162,7 +170,7 @@ if transacties_file is not None and rekening_file is not None:
             elif "UCITS" in product_str or "ETF" in product_str:
                 product_type = "ETF"
                 sector = "ETF"
-            elif "CRYPTO" in str(isin) or product_str in ["BITCOIN", "ETHEREUM"]:
+            elif "CRYPTO" in isin or product_str in ["BITCOIN", "ETHEREUM"]:
                 product_type = "Crypto"
                 sector = "Crypto"
             else:
@@ -239,7 +247,6 @@ if transacties_file is not None and rekening_file is not None:
                     else:
                         st.info("Geen dividendgegevens gevonden.")
 
-                # --- SLIMME OPTIESTRATEGIE HERKENNER ---
                 st.markdown("---")
                 st.subheader("🧠 Geautomatiseerde Optiestrategie Herkenner (Open Spreads)")
                 df_opties_open = df_gefilterd[df_gefilterd['Type'] == 'Optie'].copy()
@@ -274,11 +281,9 @@ if transacties_file is not None and rekening_file is not None:
                 df_gesloten_aandelen = df_gesloten[df_gesloten['Type'] != 'Optie'].copy()
                 df_gesloten_opties_raw = df_gesloten[df_gesloten['Type'] == 'Optie'].copy()
                 
-                # --- SENSE 1: HISTORISCHE OPTIESTRATEGIEËN ---
                 st.subheader("🧠 Historisch Gesloten Optiestrategieën & Rendement")
                 if not df_gesloten_opties_raw.empty:
                     df_gesloten_spreads = groepeer_optiestrategieen(df_gesloten_opties_raw, is_open_pagina=False)
-                    
                     if not df_gesloten_spreads.empty:
                         st.dataframe(
                             df_gesloten_spreads,
@@ -292,12 +297,10 @@ if transacties_file is not None and rekening_file is not None:
                 else:
                     st.info("Geen gesloten optieposities gevonden.")
                 
-                # --- SENSE 2: GESLOTEN AANDELEN / ETFS ---
                 st.markdown("---")
                 st.subheader("📈 Gesloten Aandelen, ETF's & Crypto")
                 if not df_gesloten_aandelen.empty:
                     df_gesloten_aandelen['Rendement (%)'] = (df_gesloten_aandelen['Gerealiseerd Resultaat (EUR)'] / df_gesloten_aandelen['Totale Aankopen (EUR)'] * 100)
-                    
                     st.dataframe(
                         df_gesloten_aandelen[['Product', 'ISIN', 'Totale Aankopen (EUR)', 'Totale Verkopen (EUR)', 'Betaalde Kosten (EUR)', 'Gerealiseerd Resultaat (EUR)', 'Rendement (%)', 'Sector']],
                         column_config={
@@ -310,7 +313,6 @@ if transacties_file is not None and rekening_file is not None:
                         use_container_width=True, hide_index=True
                     )
                 
-                # --- SENSE 3: GRAFIEK VAN COMBINATIE VAN ALLES ---
                 st.markdown("---")
                 st.subheader("📊 Gerealiseerde Resultaten per Product")
                 fig_gesloten = px.bar(
