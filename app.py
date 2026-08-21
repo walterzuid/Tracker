@@ -59,7 +59,7 @@ def parse_optie_naam(naam):
         return True, aandeel, type_optie, strike, expiratie
     return False, None, None, 0.0, None
 
-# Centrale functie om optiestrategieën te groeperen en het rendement te berekenen
+# Centrale functie om optiestrategieën te groeperen
 def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
     optie_details = []
     for idx, row in df_opties_raw.iterrows():
@@ -109,7 +109,6 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         }
         if not is_open_pagina:
             data_item["Gerealiseerd Resultaat (EUR)"] = totaal_resultaat
-            # Bereken het rendement in procenten (Winst of Verlies / Totale Aankopen)
             data_item["Rendement (%)"] = (totaal_resultaat / totale_kosten * 100) if totale_kosten > 0 else 0.0
             
         gecombineerde_strategieen.append(data_item)
@@ -121,15 +120,17 @@ if transacties_file is not None and rekening_file is not None:
     try:
         df_tx = pd.read_csv(transacties_file, sep=',', encoding='utf-8')
         df_rek = pd.read_csv(rekening_file, sep=',', encoding='utf-8')
+        
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
+        # GEFIXT: De naamloze kolommen worden nu foutloos als complete lijst hernoemd
         kolommen = df_rek.columns.tolist()
         if len(kolommen) >= 11:
-            kolommen = 'Munt_Mutatie'
-            kolommen = 'Bedrag_Mutatie'
-            kolommen = 'Munt_Saldo'
-            kolommen = 'Bedrag_Saldo'
+            kolommen[6] = 'Munt_Mutatie'
+            kolommen[7] = 'Bedrag_Mutatie'
+            kolommen[9] = 'Munt_Saldo'
+            kolommen[10] = 'Bedrag_Saldo'
             df_rek.columns = kolommen
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
@@ -152,7 +153,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -240,7 +241,7 @@ if transacties_file is not None and rekening_file is not None:
                     else:
                         st.info("Geen dividendgegevens gevonden.")
 
-                # --- SLIMME OPTIESTRATEGIE HERKENNER (OPEN POSITIES) ---
+                # --- SLIMME OPTIESTRATEGIE HERKENNER ---
                 st.markdown("---")
                 st.subheader("🧠 Geautomatiseerde Optiestrategie Herkenner (Open Spreads)")
                 df_opties_open = df_gefilterd[df_gefilterd['Type'] == 'Optie'].copy()
@@ -257,7 +258,7 @@ if transacties_file is not None and rekening_file is not None:
                 st.dataframe(df_gefilterd, use_container_width=True, hide_index=True)
 
         # ----------------------------------------------------
-        # PAGINA 2: GESLOTEN TRANSACTIES (NU OOK MET OPTIESTRATEGIEËN)
+        # PAGINA 2: GESLOTEN TRANSACTIES
         # ----------------------------------------------------
         elif pagina == "💰 Gesloten Transacties":
             st.markdown("---")
@@ -272,11 +273,10 @@ if transacties_file is not None and rekening_file is not None:
                     delta_color="normal" if totaal_gerealiseerd >= 0 else "inverse"
                 )
                 
-                # Splits de gesloten posities in gewone producten en opties
                 df_gesloten_aandelen = df_gesloten[df_gesloten['Type'] != 'Optie'].copy()
                 df_gesloten_opties_raw = df_gesloten[df_gesloten['Type'] == 'Optie'].copy()
                 
-                # --- SENSE 1: TOON DE HERKENDE HISTORISCHE OPTIESTRATEGIEËN ---
+                # --- SENSE 1: HISTORISCHE OPTIESTRATEGIEËN ---
                 st.subheader("🧠 Historisch Gesloten Optiestrategieën & Rendement")
                 if not df_gesloten_opties_raw.empty:
                     df_gesloten_spreads = groepeer_optiestrategieen(df_gesloten_opties_raw, is_open_pagina=False)
@@ -289,17 +289,15 @@ if transacties_file is not None and rekening_file is not None:
                                 "Gerealiseerd Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
                                 "Rendement (%)": st.column_config.NumberColumn(format="%.2f %%")
                             },
-                            use_container_width=True,
-                            hide_index=True
+                            use_container_width=True, hide_index=True
                         )
                 else:
                     st.info("Geen gesloten optieposities gevonden.")
                 
-                # --- SENSE 2: TOON DE NORMALE GESLOTEN AANDELEN / ETFS ---
+                # --- SENSE 2: GESLOTEN AANDELEN / ETFS ---
                 st.markdown("---")
                 st.subheader("📈 Gesloten Aandelen, ETF's & Crypto")
                 if not df_gesloten_aandelen.empty:
-                    # Bereken ook direct het rendement voor aandelen
                     df_gesloten_aandelen['Rendement (%)'] = (df_gesloten_aandelen['Gerealiseerd Resultaat (EUR)'] / df_gesloten_aandelen['Totale Aankopen (EUR)'] * 100)
                     
                     st.dataframe(
@@ -311,8 +309,7 @@ if transacties_file is not None and rekening_file is not None:
                             "Gerealiseerd Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
                             "Rendement (%)": st.column_config.NumberColumn(format="%.2f %%")
                         },
-                        use_container_width=True,
-                        hide_index=True
+                        use_container_width=True, hide_index=True
                     )
                 
                 # --- SENSE 3: GRAFIEK VAN COMBINATIE VAN ALLES ---
