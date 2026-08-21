@@ -124,14 +124,13 @@ if transacties_file is not None and rekening_file is not None:
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
-        # GEFIXT: Hernoemen op basis van positie-index om fouten te voorkomen
-        if len(df_rek.columns) >= 11:
-            df_rek = df_rek.rename(columns={
-                df_rek.columns[6]: 'Munt_Mutatie',
-                df_rek.columns[7]: 'Bedrag_Mutatie',
-                df_rek.columns[9]: 'Munt_Saldo',
-                df_rek.columns[10]: 'Bedrag_Saldo'
-            })
+        # DEFINITIEVE FIX: Hernoemen direct op basis van de echte string-namen in je CSV
+        df_rek = df_rek.rename(columns={
+            'Mutatie': 'Munt_Mutatie',
+            'Unnamed: 8': 'Bedrag_Mutatie',
+            'Saldo': 'Munt_Saldo',
+            'Unnamed: 10': 'Bedrag_Saldo'
+        })
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
 
@@ -153,7 +152,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
