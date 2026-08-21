@@ -169,3 +169,91 @@ st.dataframe(
 
 # Waarschuwing uit de Excel-sheet tonen 
 st.info("⚠️ **Concentratierisico-vuistregel:** Een sector die meer dan ~25% van je aandelenportefeuille beslaat, geeft een verhoogd concentratierisico. Een sectorbrede tegenvaller raakt dan een groot deel van je vermogen.") 
+
+# --- VANAF HIER ONDERAAN PLAKKEN ---
+
+def laad_slimme_optiestrategieen():
+    # Dit is jouw exacte openstaande optiedata inclusief de actuele koersen
+    optie_data = """ISIN,Product,Huidig aantal,Gem. prijs/premie (EUR),Kostenbasis huidige positie (EUR),Actuele koers (lokale valuta),Marktwaarde (EUR)
+NLEX01343295,NN C80.00 18DEC26,-1,27.25,-27.25,2.32,-2.32
+NLEX01447526,NN C70.00 18DEC26,1,110.75,110.75,8.84,8.84"""
+
+    df = pd.read_csv(io.StringIO(optie_data))
+    
+    # 1. Haal de details uit de productnaam (bijv. "NN C80.00 18DEC26")
+    def split_optie_naam(naam):
+        delen = naam.split()
+        if len(delen) >= 4:
+            aandeel = delen[0]
+            type_optie = "Call" if "C" in delen[1] else "Put"
+            # Haal de uitoefenprijs op en maak er een net getal van
+            strike = float(delen[1].replace("C", "").replace("P", ""))
+            expiratie = " ".join(delen[2:])
+            return pd.Series([aandeel, type_optie, strike, expiratie])
+        return pd.Series(["Onbekend", "Onbekend", 0.0, "Onbekend"])
+
+    df[['Aandeel', 'Type', 'Strike', 'Expiratie']] = df['Product'].apply(split_optie_naam)
+    
+    # We berekenen het resultaat per losse poot: Marktwaarde - Kostenbasis
+    df['Resultaat (EUR)'] = df['Marktwaarde (EUR)'] - df['Kostenbasis huidige positie (EUR)']
+
+    gecombineerde_strategieen = []
+    
+    # 2. Groeperen op basis van Aandeel, Expiratiedatum en Type (Call of Put)
+    for (aandeel, expiratie, type_optie), groep in df.groupby(['Aandeel', 'Expiratie', 'Type']):
+        groep = groep.sort_values(by='Strike') # Sorteer van lage naar hoge strike
+        aantal_poten = len(groep)
+        
+        totale_kostenbasis = groep['Kostenbasis huidige positie (EUR)'].sum()
+        totale_marktwaarde = groep['Marktwaarde (EUR)'].sum()
+        totaal_resultaat = groep['Resultaat (EUR)'].sum()
+        
+        # Haal de strikes op voor de naamgeving
+        strikes_str = "/".join([f"{s:.2f}" for s in groep['Strike'].tolist()])
+        
+        if aantal_poten == 2:
+            aantallen = groep['Huidig aantal'].tolist()
+            # Als je de lage strike koopt (+1) en de hoge verkoopt (-1) -> Bull Spread
+            if aantallen[0] > 0 and aantallen[1] < 0:
+                strategie_naam = f"🟢 Bull {type_optie} Spread ({strikes_str})"
+            # Als je de lage verkoopt (-1) en de hoge koopt (+1) -> Bear Spread
+            elif aantallen[0] < 0 and aantallen[1] > 0:
+                strategie_naam = f"🔴 Bear {type_optie} Spread ({strikes_str})"
+            else:
+                strategie_naam = f"📦 Custom {type_optie} Spread ({strikes_str})"
+        else:
+            # Als het een losse regel is, geef hem een duidelijke naam
+            row = groep.iloc[0]
+            richting = "Gekochte (Long)" if row['Huidig aantal'] > 0 else "Geschreven (Short)"
+            strategie_naam = f"📄 {richting} {type_optie} {row['Strike']:.2f}"
+
+        gecombineerde_strategieen.append({
+            "Onderliggend": aandeel,
+            "Expiratie": expiratie,
+            "Strategie": strategie_naam,
+            "Kostenbasis (EUR)": totale_kostenbasis,
+            "Huidige Waarde (EUR)": totale_marktwaarde,
+            "Netto Resultaat (EUR)": totaal_resultaat
+        })
+        
+    return pd.DataFrame(gecombineerde_strategieen)
+
+# --- STREAMLIT WEERGAVE ---
+st.markdown("---") # Tekent een mooie scheidingslijn op je scherm
+st.subheader("🧠 Slimme Optiestrategie Herkenner")
+st.markdown("Het dashboard voegt je losse optiecontracten nu automatisch samen tot de echte strategie:")
+
+df_spreads = laad_slimme_optiestrategieen()
+
+# Mooie opmaak voor de tabel met geld-notaties
+st.dataframe(
+    df_spreads,
+    column_config={
+        "Kostenbasis (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+        "Huidige Waarde (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+        "Netto Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
+    },
+    use_container_width=True,
+    hide_index=True
+)
+
