@@ -67,7 +67,7 @@ df_posities = laad_posities_data()
 
 # 3. Applicatie Header & KPI's uit jouw Overzicht
 st.title("📊 DeGiro Portefeuille Rendement Tracker")
-st.caption("Peildatum: 20 augustus 2026 | Alle bedragen in EUR") [source: 1]
+st.caption("Peildatum: 20 augustus 2026 | Alle bedragen in EUR")
 
 # Belangrijkste cijfers berekenen (of hardcoded uit jouw spreadsheet overnemen)
 totale_kostenbasis = 45565.75 [source: 1]
