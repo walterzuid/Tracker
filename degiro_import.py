@@ -185,10 +185,12 @@ def parse_degiro_transacties_csv(bestand) -> pd.DataFrame:
     return resultaat.sort_values("datum").reset_index(drop=True)
 
 
-def degiro_naar_portfolio_formaat(bestand, valuta: str = "eur") -> pd.DataFrame:
+def degiro_naar_portfolio_formaat(
+    bestand, valuta: str = "eur", negeer_opties: bool = True
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Zet een DeGiro-transactieoverzicht om naar het transactieformaat van
     de portfolio tracker: kolommen [datum, isin, product, ticker, type,
-    aantal, prijs]. De 'ticker'-kolom is leeg -- vul die in via de
+    aantal, prijs, order_id]. De 'ticker'-kolom is leeg -- vul die in via de
     ISIN-naar-ticker mapping voordat je de rijen aan de portfolio toevoegt.
 
     Parameters
@@ -199,12 +201,26 @@ def degiro_naar_portfolio_formaat(bestand, valuta: str = "eur") -> pd.DataFrame:
         "eur" (standaard) gebruikt de EUR-waarde per aandeel, zodat alle
         posities in dezelfde valuta staan. "lokaal" gebruikt de koers in
         de handelsvaluta van het aandeel zelf (bv. USD voor Apple).
+    negeer_opties : bool
+        Als True (standaard) worden optie-/derivatentransacties eruit
+        gefilterd -- deze tracker volgt alleen aandelenposities.
+
+    Returns
+    -------
+    (aandelen_df, opties_df) : tuple van twee DataFrames. `opties_df` is
+    leeg als `negeer_opties=False`, en bevat anders de overgeslagen
+    optietransacties (voor eigen inzicht -- deze worden niet geïmporteerd).
     """
     ruw = parse_degiro_transacties_csv(bestand)
     transacties = ruw[ruw["isin"].notna() & ruw["aantal"].notna() & (ruw["aantal"] != 0)].copy()
 
+    opties = pd.DataFrame(columns=transacties.columns)
+    if negeer_opties and not transacties.empty:
+        transacties, opties = splits_aandelen_en_opties(transacties)
+
     if transacties.empty:
-        return pd.DataFrame(columns=["datum", "isin", "product", "ticker", "type", "aantal", "prijs"])
+        leeg = pd.DataFrame(columns=["datum", "isin", "product", "ticker", "type", "aantal", "prijs", "order_id"])
+        return leeg, opties
 
     transacties["type"] = transacties["aantal"].apply(lambda x: "Koop" if x > 0 else "Verkoop")
     transacties["aantal_abs"] = transacties["aantal"].abs()
@@ -225,7 +241,7 @@ def degiro_naar_portfolio_formaat(bestand, valuta: str = "eur") -> pd.DataFrame:
         "order_id": transacties["order_id"],
     })
 
-    return resultaat.sort_values("datum").reset_index(drop=True)
+    return resultaat.sort_values("datum").reset_index(drop=True), opties
 
 
 def unieke_isins(portfolio_df: pd.DataFrame) -> pd.DataFrame:
@@ -243,6 +259,67 @@ def pas_ticker_mapping_toe(portfolio_df: pd.DataFrame, mapping: dict[str, str]) 
     """Vult de 'ticker'-kolom in op basis van een {isin: ticker}-dictionary."""
     resultaat = portfolio_df.copy()
     resultaat["ticker"] = resultaat["isin"].map(mapping).fillna(resultaat["ticker"])
+    return resultaat
+
+
+# ---------------------------------------------------------------------------
+# Opties / derivaten herkennen
+# ---------------------------------------------------------------------------
+
+# DeGiro noemt optieproducten volgens het patroon "C|P <onderliggende> <expiratiedatum> <strike>",
+# bv. "C ASML 17JAN25 700" of "P AMEDLAND 21MAR25 30". Deze tracker volgt
+# alleen aandelenposities, dus dit soort rijen wordt herkend en apart gehouden.
+_OPTIE_PATROON = re.compile(r"^\s*[CP]\s+.+\b\d{1,2}[A-Z]{3}\d{2}\b.*\d")
+
+
+def is_optie_transactie(product: str) -> bool:
+    return isinstance(product, str) and bool(_OPTIE_PATROON.match(product.strip()))
+
+
+def splits_aandelen_en_opties(ruw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Splitst een geparsed transactieoverzicht in (aandelen_df, opties_df)
+    op basis van de productnaam."""
+    is_optie = ruw["product"].apply(is_optie_transactie)
+    return ruw[~is_optie].copy(), ruw[is_optie].copy()
+
+
+# ---------------------------------------------------------------------------
+# Automatische ISIN -> ticker opzoeken
+# ---------------------------------------------------------------------------
+
+def zoek_ticker_via_isin(isin: str) -> str | None:
+    """Probeert automatisch een yfinance-compatibele ticker te vinden voor
+    een ISIN via Yahoo Finance's zoek-endpoint. Vereist internetverbinding;
+    geeft None terug als er niets gevonden wordt of bij een fout (bv. geen
+    verbinding, rate limiting), zodat de aanroeper altijd op handmatige
+    invoer kan terugvallen."""
+    try:
+        import requests
+        resp = requests.get(
+            "https://query2.finance.yahoo.com/v1/finance/search",
+            params={"q": isin, "quotesCount": 1, "newsCount": 0},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=6,
+        )
+        resp.raise_for_status()
+        kandidaten = resp.json().get("quotes", [])
+        if kandidaten:
+            return kandidaten[0].get("symbol")
+    except Exception:
+        return None
+    return None
+
+
+def vul_ticker_suggesties_aan(isins_df: pd.DataFrame) -> pd.DataFrame:
+    """Vult de 'ticker'-kolom van een unieke-ISIN-tabel aan met automatisch
+    opgezochte suggesties voor rijen die nog geen ticker hebben. Rijen die
+    al een ticker hebben (bv. uit een eerdere mapping) blijven ongewijzigd."""
+    resultaat = isins_df.copy()
+    for i, rij in resultaat.iterrows():
+        if not rij.get("ticker"):
+            suggestie = zoek_ticker_via_isin(rij["isin"])
+            if suggestie:
+                resultaat.at[i, "ticker"] = suggestie
     return resultaat
 
 

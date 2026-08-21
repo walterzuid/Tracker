@@ -22,8 +22,12 @@ De app opent automatisch in je browser op `http://localhost:8501`.
 - **Transacties toevoegen/verwijderen** — koop en verkoop van aandelen via het zijpaneel.
 - **DeGiro-import** — upload je `Transactieoverzicht.csv` en `Rekeningoverzicht.csv`
   (DeGiro -> Activiteit -> Exporteren) rechtstreeks in de sidebar:
-  - Transacties worden automatisch herkend; je koppelt eenmalig elke ISIN aan
-    een ticker (bv. Yahoo Finance-notatie), daarna onthoudt de app dat.
+  - Transacties worden automatisch herkend; **optietransacties worden automatisch
+    gedetecteerd en overgeslagen** (deze tracker volgt alleen aandelenposities).
+  - Voor elke ISIN wordt automatisch geprobeerd een ticker op te zoeken via
+    Yahoo Finance; je hoeft de suggestie alleen te controleren/corrigeren
+    i.p.v. alles handmatig in te typen. Eenmaal bevestigde koppelingen worden
+    onthouden voor volgende imports.
   - Het rekeningoverzicht wordt automatisch gecategoriseerd: dividend,
     dividendbelasting, transactiekosten, stortingen/opnames, interne
     overboekingen, effecten-uitleeninkomsten, etc.

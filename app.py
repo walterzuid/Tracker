@@ -21,6 +21,7 @@ from degiro_import import (
     degiro_naar_portfolio_formaat,
     unieke_isins,
     pas_ticker_mapping_toe,
+    vul_ticker_suggesties_aan,
     parse_degiro_account_csv,
     degiro_account_samenvatting,
     degiro_kasstroom,
@@ -284,25 +285,46 @@ transactie_bestand = st.sidebar.file_uploader(
 
 if transactie_bestand is not None:
     try:
-        geimporteerd = degiro_naar_portfolio_formaat(transactie_bestand)
+        geimporteerd, opties = degiro_naar_portfolio_formaat(transactie_bestand)
     except ValueError as fout:
         st.sidebar.error(str(fout))
-        geimporteerd = None
+        geimporteerd, opties = None, None
+
+    if opties is not None and not opties.empty:
+        st.sidebar.info(
+            f"ℹ️ {len(opties)} optietransactie(s) gevonden en overgeslagen "
+            "(opties worden nog niet ondersteund door deze tracker)."
+        )
+        with st.sidebar.expander("Bekijk overgeslagen optietransacties"):
+            st.dataframe(opties[["datum", "product", "aantal", "koers", "koers_valuta"]],
+                         hide_index=True, use_container_width=True)
 
     if geimporteerd is not None and not geimporteerd.empty:
-        st.sidebar.success(f"{len(geimporteerd)} transactie(s) gevonden in het bestand.")
+        st.sidebar.success(f"{len(geimporteerd)} aandelentransactie(s) gevonden in het bestand.")
 
-        # Ticker-mapping: vul bekende tickers alvast in, laat onbekende invullen
+        # Ticker-mapping: vul bekende tickers in op basis van eerdere mapping,
+        # en probeer de rest automatisch op te zoeken via Yahoo Finance.
         isins = unieke_isins(geimporteerd)
         isins["ticker"] = isins["isin"].map(st.session_state.isin_mapping).fillna("")
 
-        st.sidebar.markdown("**Koppel elke ISIN aan een ticker** (bv. Yahoo Finance-notatie):")
+        nog_niet_gekoppeld = int((isins["ticker"] == "").sum())
+        if nog_niet_gekoppeld and "isin_auto_opgezocht" not in st.session_state:
+            with st.sidebar.status(f"🔍 {nog_niet_gekoppeld} ticker(s) automatisch opzoeken..."):
+                isins = vul_ticker_suggesties_aan(isins)
+            st.session_state.isin_auto_opgezocht = True
+            st.session_state.isin_suggesties = dict(zip(isins["isin"], isins["ticker"]))
+        elif "isin_suggesties" in st.session_state:
+            isins["ticker"] = isins.apply(
+                lambda r: r["ticker"] or st.session_state.isin_suggesties.get(r["isin"], ""), axis=1
+            )
+
+        st.sidebar.markdown("**Controleer de ticker per ISIN** (automatisch opgezochte suggesties zijn al ingevuld):")
         bewerkte_mapping = st.sidebar.data_editor(
             isins,
             column_config={
                 "isin": st.column_config.TextColumn("ISIN", disabled=True),
                 "product": st.column_config.TextColumn("Product", disabled=True),
-                "ticker": st.column_config.TextColumn("Ticker", required=True),
+                "ticker": st.column_config.TextColumn("Ticker", required=True, help="Controleer of dit klopt, met name bij automatisch opgezochte suggesties."),
             },
             hide_index=True,
             use_container_width=True,
@@ -322,6 +344,8 @@ if transactie_bestand is not None:
                 aantal_toegevoegd = voeg_transacties_samen(geimporteerd)
 
                 st.session_state.degiro_transactie_upload_teller += 1  # reset uploader
+                st.session_state.pop("isin_auto_opgezocht", None)
+                st.session_state.pop("isin_suggesties", None)
                 if aantal_toegevoegd:
                     st.sidebar.success(f"{aantal_toegevoegd} nieuwe transactie(s) geïmporteerd.")
                 else:
