@@ -2,258 +2,176 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
+import re
 
 # 1. Pagina-instellingen
-st.set_page_config(page_title="DeGiro Portefeuille Tracker", layout="wide", page_icon="📊")
+st.set_page_config(page_title="DeGiro Live Tracker", layout="wide", page_icon="📊")
 
-# 2. Handmatige data-input (gebaseerd op jouw spreadsheet-export)
-# Om het script direct te laten werken, laden we de belangrijkste data in via tekst-strings.
-@st.cache_data
-@st.cache_data
-def laad_posities_data():
-    # 1. Aandelen data
-    aandelen_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
-GB00BP6MXD84,SHELL PLC,70,1831.6,2795.8,964.2,Energie
-NL0010273215,ASML HOLDING N.V.,3,1520.5,4522.8,3002.3,Technologie
-NL0000009165,HEINEKEN NV,10,769.95,719.8,-50.15,Consumptiegoederen
-NL0012969182,ADYEN N.V.,1,1418.8,1054.6,-364.2,Financiële dienstverlening
-NL0009269109,KONINKLIJKE HEIJMANS NV,100,1700,8860,7160,Bouw & Vastgoed
-NL0015002AG2,EBUSCO HOLDING N.V.,60,71.16,14.91,-56.25,Industrie
-US5949181045,MICROSOFT CORPORATION,7,2814.95,2919.79,104.84,Technologie
-DK0061412772,CADELER A/S,300,1427.35,1513.61,86.26,Industrie
-DE0007030009,RHEINMETALL AG,4,2534.5,4725.6,2191.1,Industrie
-NL0010773842,NN GROUP N.V.,30,1373.8,2313.6,939.8,Financiële dienstverlening
-US5738741041,"MARVELL TECHNOLOGY, INC.",10,648.97,2043.49,1394.52,Technologie
-NL0000334118,ASM INTERNATIONAL NV,4,1835.4,3288.8,1453.4,Technologie
-CH0360826991,COMET HOLDING AG,5,1109.06,1867.09,758.03,Technologie
-CA06849F1080,BARRICK MINING CORPORATION,75,1275.88,2915.77,1639.89,Grondstoffen
-NL0010801007,IMCD N.V.,15,1552.12,1455.6,-96.52,Grondstoffen
-NL0000337319,KONINKLIJKE BAM GROEP NV,100,744.5,1158,413.5,Bouw & Vastgoed
-NL0000235190,AIRBUS SE,5,851.8,1035.25,183.45,Industrie
-NL0012365084,NSI NV,40,973,665.6,-307.4,Vastgoed
-NL0011872643,ASR NEDERLAND N.V.,15,928.3,1039.2,110.9,Financiële dienstverlening
-NL0012059018,EXOR NV,10,835.5,696.5,-139.0,Financiële dienstverlening
-US2910111044,EMERSON ELECTRIC CO,6,670.93,814.45,143.52,Industrie
-DK0010272202,GENMAB A/S,4,958.45,1151.43,192.98,Gezondheidszorg
-US6703461052,NUCOR CORP,8,1104.25,1713.69,609.44,Grondstoffen
-NL0015002MS2,THE MAGNUM ICE CREAM COMPANY N.V.,40,513.72,665.68,151.96,Consumptiegoederen
-US68236H2040,ONDAS INC,100,800.07,766.51,-33.56,Technologie
-US84615Q1031,SPACE EXPLORATION TECHNOLOGIES CORP,4,465.91,481.10,15.19,Industrie
-DE000ENER6Y0,SIEMENS ENERGY AG,8,1244.9,1229.92,-14.98,Industrie
-US2788651006,ECOLAB INC.,5,1184.35,1229.95,45.60,Industrie
-US78409V1044,S&P GLOBAL INC,6,2176.01,2205.75,29.74,Financiële dienstverlening
-NL0010583399,CORBION N.V. CLASS C,40,794.4,797.6,3.20,Grondstoffen
-DE000A1K0235,SUSS MICROTEC SE,10,784.9,732.0,-52.90,Technologie
-SE0001515552,INDUTRADE AB,40,880.77,877.93,-2.84,Industrie"""
+st.title("📊 DeGiro Live Portefeuille Dashboard")
+st.markdown("Sleep je DeGiro CSV-bestanden hieronder om je dashboard live bij te werken.")
 
-    # 2. ETF data
-    etf_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
-IE00BQQP9F84,VANECK GOLD MINERS UCITS ETF,30,918.9,2813.4,1894.5,ETF
-IE000YYE6WK5,VANECK DEFENSE UCITS ETF,30,843.6,1712.7,869.1,ETF
-IE00BDFBTQ78,VANECK S&P GLOBAL MINING UCITS ETF,30,849.3,1760.7,911.4,ETF
-NL0011683594,VANECK MS DEVELOPED MARKETS DIV LEAD,25,965.75,1384.0,418.25,ETF
-IE00BMC38736,VANECK SEMICONDUCTOR UCITS ETF,20,677.9,1796.4,1118.5,ETF
-IE000UL6CLP7,GLOBAL X SILVER MINERS UCITS ETF,40,682.44,1555.2,872.76,ETF
-NL0009272749,VANECK AEX UCITS ETF,10,917.0,1114.8,197.8,ETF
-IE000M7V94E1,VANECK URANIUM AND NUCLEAR UCITS ETF,10,433.05,461.75,28.7,ETF
-IE0002PG6CA6,VANECK RARE EARTH AND STRATEGIC METALS,40,595.4,513.2,-82.2,ETF"""
+# 2. CSV Bestandinvoer in de zijbalk (Sidebar)
+st.sidebar.header("📁 DeGiro Data Upload")
+transacties_file = st.sidebar.file_uploader("Upload Transacties.csv", type=["csv"])
+rekening_file = st.sidebar.file_uploader("Upload Rekeningoverzicht.csv", type=["csv"])
 
-    # 3. Crypto data (NIEUW) [source: 1]
-    crypto_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
-CRYPTO-ETHEREUM,ETHEREUM,0.112623,401.63,220.21,-181.42,Crypto
-CRYPTO-BITCOIN,BITCOIN,0.004181,401.48,249.32,-152.16,Crypto"""
+# Hulpmiddel om getallen uit DeGiro CSV netjes om te zetten
+def maak_numeriek(val):
+    if pd.isna(val):
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip().replace('.', '').replace(',', '.')
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
 
-    # 4. Opties data (NIEUW - Openstaande posities) [source: 1]
-    opties_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
-NLEX01343295,NN C80.00 18DEC26,-1,-27.25,-2.32,24.93,Opties
-NLEX01447526,NN C70.00 18DEC26,1,110.75,8.84,-101.91,Opties"""
-
-    # Maak DataFrames en voeg Producttype toe
-    df_aandelen = pd.read_csv(io.StringIO(aandelen_data))
-    df_aandelen['Type'] = 'Aandeel'
-    
-    df_etf = pd.read_csv(io.StringIO(etf_data))
-    df_etf['Type'] = 'ETF'
-    
-    df_crypto = pd.read_csv(io.StringIO(crypto_data))
-    df_crypto['Type'] = 'Crypto'
-    
-    df_opties = pd.read_csv(io.StringIO(opties_data))
-    df_opties['Type'] = 'Optie'
-    
-    # Voeg alle data samen in één grote tabel
-    return pd.concat([df_aandelen, df_etf, df_crypto, df_opties], ignore_index=True)
-
-
-df_posities = laad_posities_data()
-
-# 3. Applicatie Header & KPI's uit jouw Overzicht
-st.title("📊 DeGiro Portefeuille Rendement Tracker")
-st.caption("Peildatum: 20 augustus 2026 | Alle bedragen in EUR")
-
-# Belangrijkste cijfers berekenen (of hardcoded uit jouw spreadsheet overnemen)
-totale_kostenbasis = 45565.75 
-totale_marktwaarde = 71860.04 
-ongerealiseerd_res = 26294.29 
-ongerealiseerd_rend = 0.5771 * 100 # 57.7% 
-netto_resultaat = 27523.68 
-xirr = 0.2511 * 100 # 25.11% 
-
-# KPI Kaarten weergeven
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric(label="💰 Totale Marktwaarde", value=f"€ {totale_marktwaarde:,.2f}")
-kpi2.metric(label="📉 Kostenbasis", value=f"€ {totale_kostenbasis:,.2f}")
-kpi3.metric(label="📈 Ongerealiseerd Resultaat", value=f"€ {ongerealiseerd_res:,.2f}", delta=f"{ongerealiseerd_rend:.2f}%")
-kpi4.metric(label="⏱️ Jaarlijks Rendement (XIRR)", value=f"{xirr:.2f}%") 
-
-st.markdown("---")
-
-# 4. Interactieve Zijbalk (Sidebar) voor Filters
-st.sidebar.header("🔍 Portefeuille Filters")
-product_type = st.sidebar.multiselect(
-    "Kies Product Type:", 
-    options=df_posities['Type'].unique(), 
-    default=df_posities['Type'].unique()
-)
-
-sectoren = df_posities['Sector'].unique()
-gekozen_sectoren = st.sidebar.multiselect(
-    "Filter op Sector:", 
-    options=sectoren, 
-    default=sectoren
-)
-
-# Data filteren op basis van keuzes
-df_gefilterd = df_posities[
-    (df_posities['Type'].isin(product_type)) & 
-    (df_posities['Sector'].isin(gekozen_sectoren))
-]
-
-# 5. Visualisaties (Grafieken tabblad)
-st.subheader("Visualisaties & Allocatie")
-links, rechts = st.columns(2)
-
-with links:
-    # Grafiek 1: Portefeuille-allocatie (o.b.v. Marktwaarde) 
-    fig_allocatie = px.pie(
-        df_gefilterd, 
-        values='Marktwaarde (EUR)', 
-        names='Product', 
-        title='Portefeuille-allocatie (Huidige Posities)',
-        hole=0.4
-    )
-    st.plotly_chart(fig_allocatie, use_container_width=True)
-
-with rechts:
-    # Grafiek 2: Sector-allocatie 
-    df_sector = df_gefilterd.groupby('Sector')['Marktwaarde (EUR)'].sum().reset_index()
-    fig_sector = px.bar(
-        df_sector, 
-        x='Sector', 
-        y='Marktwaarde (EUR)', 
-        title='Blootstelling per Sector',
-        text_auto='.2s',
-        color='Sector'
-    )
-    st.plotly_chart(fig_sector, use_container_width=True)
-
-st.markdown("---")
-
-# 6. Interactieve Data Dataframes (De tabellen zelf)
-st.subheader("📋 Lopende Posities")
-st.dataframe(
-    df_gefilterd[['Product', 'ISIN', 'Huidig aantal', 'Kostenbasis huidige positie (EUR)', 'Marktwaarde (EUR)', 'Ongerealiseerd resultaat (EUR)', 'Sector']], 
-    use_container_width=True,
-    hide_index=True
-)
-
-# Waarschuwing uit de Excel-sheet tonen 
-st.info("⚠️ **Concentratierisico-vuistregel:** Een sector die meer dan ~25% van je aandelenportefeuille beslaat, geeft een verhoogd concentratierisico. Een sectorbrede tegenvaller raakt dan een groot deel van je vermogen.") 
-
-# --- VANAF HIER ONDERAAN PLAKKEN ---
-
-def laad_slimme_optiestrategieen():
-    # Dit is jouw exacte openstaande optiedata inclusief de actuele koersen
-    optie_data = """ISIN,Product,Huidig aantal,Gem. prijs/premie (EUR),Kostenbasis huidige positie (EUR),Actuele koers (lokale valuta),Marktwaarde (EUR)
-NLEX01343295,NN C80.00 18DEC26,-1,27.25,-27.25,2.32,-2.32
-NLEX01447526,NN C70.00 18DEC26,1,110.75,110.75,8.84,8.84"""
-
-    df = pd.read_csv(io.StringIO(optie_data))
-    
-    # 1. Haal de details uit de productnaam (bijv. "NN C80.00 18DEC26")
-    def split_optie_naam(naam):
-        delen = naam.split()
-        if len(delen) >= 4:
-            aandeel = delen[0]
-            type_optie = "Call" if "C" in delen[1] else "Put"
-            # Haal de uitoefenprijs op en maak er een net getal van
-            strike = float(delen[1].replace("C", "").replace("P", ""))
-            expiratie = " ".join(delen[2:])
-            return pd.Series([aandeel, type_optie, strike, expiratie])
-        return pd.Series(["Onbekend", "Onbekend", 0.0, "Onbekend"])
-
-    df[['Aandeel', 'Type', 'Strike', 'Expiratie']] = df['Product'].apply(split_optie_naam)
-    
-    # We berekenen het resultaat per losse poot: Marktwaarde - Kostenbasis
-    df['Resultaat (EUR)'] = df['Marktwaarde (EUR)'] - df['Kostenbasis huidige positie (EUR)']
-
-    gecombineerde_strategieen = []
-    
-    # 2. Groeperen op basis van Aandeel, Expiratiedatum en Type (Call of Put)
-    for (aandeel, expiratie, type_optie), groep in df.groupby(['Aandeel', 'Expiratie', 'Type']):
-        groep = groep.sort_values(by='Strike') # Sorteer van lage naar hoge strike
-        aantal_poten = len(groep)
+# 3. CONTROLE: Zijn de bestanden geüpload?
+if transacties_file is not None and rekening_file is not None:
+    try:
+        # Bestanden inlezen
+        df_tx = pd.read_csv(transacties_file, sep=',', encoding='utf-8')
+        df_rek = pd.read_csv(rekening_file, sep=',', encoding='utf-8')
         
-        totale_kostenbasis = groep['Kostenbasis huidige positie (EUR)'].sum()
-        totale_marktwaarde = groep['Marktwaarde (EUR)'].sum()
-        totaal_resultaat = groep['Resultaat (EUR)'].sum()
+        # Kolomnamen opschonen
+        df_tx.columns = df_tx.columns.str.strip()
+        df_rek.columns = df_rek.columns.str.strip()
         
-        # Haal de strikes op voor de naamgeving
-        strikes_str = "/".join([f"{s:.2f}" for s in groep['Strike'].tolist()])
+        st.success("✅ Beide bestanden succesvol ingeladen! Data wordt verwerkt...")
+
+        # --- BEREKENING 1: POSITIES BEREKENEN UIT TRANSACTIES ---
+        df_tx['Datum_Tijd'] = pd.to_datetime(df_tx['Datum'] + ' ' + df_tx['Tijd'], errors='coerce')
+        df_tx = df_tx.sort_values('Datum_Tijd').reset_index(drop=True)
         
-        if aantal_poten == 2:
-            aantallen = groep['Huidig aantal'].tolist()
-            # Als je de lage strike koopt (+1) en de hoge verkoopt (-1) -> Bull Spread
-            if aantallen[0] > 0 and aantallen[1] < 0:
-                strategie_naam = f"🟢 Bull {type_optie} Spread ({strikes_str})"
-            # Als je de lage verkoopt (-1) en de hoge koopt (+1) -> Bear Spread
-            elif aantallen[0] < 0 and aantallen[1] > 0:
-                strategie_naam = f"🔴 Bear {type_optie} Spread ({strikes_str})"
+        df_tx['Aantal'] = df_tx['Aantal'].apply(maak_numeriek)
+        df_tx['Totaal (EUR)'] = df_tx['Totaal (EUR)'].apply(maak_numeriek)
+        
+        posities_lijst = []
+        for product, groep in df_tx.groupby('Product'):
+            huidig_aantal = groep['Aantal'].sum()
+            totale_investering = groep[groep['Aantal'] > 0]['Totaal (EUR)'].sum()
+            
+            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            product_str = str(product).upper()
+            
+            if "UCITS" in product_str or "ETF" in product_str:
+                product_type = "ETF"
+                sector = "ETF"
+            elif "CRYPTO" in str(isin) or product_str in ["BITCOIN", "ETHEREUM"]:
+                product_type = "Crypto"
+                sector = "Crypto"
+            elif any(optie_kenmerk in product_str for optie_kenmerk in [" C", " P", "CALL", "PUT"]) or len(product_str.split()) >= 3:
+                product_type = "Optie"
+                sector = "Optie"
             else:
-                strategie_naam = f"📦 Custom {type_optie} Spread ({strikes_str})"
+                product_type = "Aandeel"
+                sector = groep['Sector'].iloc[0] if 'Sector' in groep.columns and not pd.isna(groep['Sector'].iloc[0]) else "Aandelen"
+            
+            if abs(huidig_aantal) > 0.000001:
+                posities_lijst.append({
+                    "Product": product,
+                    "ISIN": isin,
+                    "Huidig aantal": huidig_aantal,
+                    "Kostenbasis (EUR)": abs(totale_investering),
+                    "Type": product_type,
+                    "Sector": sector
+                })
+                
+        df_posities = pd.DataFrame(posities_lijst)
+        # --- BEREKENING 2: DIVIDENDEN FILTEREN ---
+        df_div = df_rek[df_rek['Omschrijving'].str.contains('Dividend|dividend', case=False, na=False)].copy()
+        if not df_div.empty:
+            kolom_bedrag = 'Bedrag (EUR)' if 'Bedrag (EUR)' in df_div.columns else 'Netto (EUR)'
+            df_div['Netto (EUR)'] = df_div[kolom_bedrag].apply(maak_numeriek)
+            df_div['Maand'] = pd.to_datetime(df_div['Datum'], errors='coerce').dt.to_period('M').astype(str)
+            totaal_ontvangen_dividend = df_div['Netto (EUR)'].sum()
         else:
-            # Als het een losse regel is, geef hem een duidelijke naam
-            row = groep.iloc[0]
-            richting = "Gekochte (Long)" if row['Huidig aantal'] > 0 else "Geschreven (Short)"
-            strategie_naam = f"📄 {richting} {type_optie} {row['Strike']:.2f}"
+            totaal_ontvangen_dividend = 0.0
 
-        gecombineerde_strategieen.append({
-            "Onderliggend": aandeel,
-            "Expiratie": expiratie,
-            "Strategie": strategie_naam,
-            "Kostenbasis (EUR)": totale_kostenbasis,
-            "Huidige Waarde (EUR)": totale_marktwaarde,
-            "Netto Resultaat (EUR)": totaal_resultaat
-        })
+        # --- INTERFACE: HOOFD-KPI'S ---
+        st.markdown("---")
+        kpi1, kpi2, kpi3 = st.columns(3)
+        totale_kostenbasis = df_posities['Kostenbasis (EUR)'].sum() if not df_posities.empty else 0.0
         
-    return pd.DataFrame(gecombineerde_strategieen)
+        kpi1.metric(label="📉 Totale Kostenbasis (Open Posities)", value=f"€ {totale_kostenbasis:,.2f}")
+        kpi2.metric(label="💰 Totaal Dividend Ontvangen", value=f"€ {abs(totaal_ontvangen_dividend):,.2f}")
+        kpi3.metric(label="📦 Aantal Open Producten", value=len(df_posities) if not df_posities.empty else 0)
 
-# --- STREAMLIT WEERGAVE ---
-st.markdown("---") # Tekent een mooie scheidingslijn op je scherm
-st.subheader("🧠 Slimme Optiestrategie Herkenner")
-st.markdown("Het dashboard voegt je losse optiecontracten nu automatisch samen tot de echte strategie:")
+        # --- LIVE FILTERS EN GRAFIEKEN ---
+        if not df_posities.empty:
+            soorten_in_portefeuille = df_posities['Type'].unique()
+            gekozen_types = st.sidebar.multiselect("Filter op Type:", options=soorten_in_portefeuille, default=soorten_in_portefeuille)
+            df_gefilterd = df_posities[df_posities['Type'].isin(gekozen_types)]
+            
+            st.subheader("Visualisaties & Allocatie")
+            links, rechts = st.columns(2)
+            
+            with links:
+                fig_allocatie = px.pie(
+                    df_gefilterd, values='Kostenbasis (EUR)', names='Product', 
+                    title='Portefeuille-allocatie (o.b.v. Kostenbasis)', hole=0.4
+                )
+                st.plotly_chart(fig_allocatie, use_container_width=True)
+                
+            with rechts:
+                if not df_div.empty:
+                    df_div_maand = df_div.groupby('Maand')['Netto (EUR)'].sum().reset_index()
+                    df_div_maand['Netto (EUR)'] = df_div_maand['Netto (EUR)'].abs()
+                    fig_div = px.bar(
+                        df_div_maand, x='Maand', y='Netto (EUR)', 
+                        title='Ontvangen Dividend per Maand', color_discrete_sequence=['#2ecc71']
+                    )
+                    st.plotly_chart(fig_div, use_container_width=True)
+                else:
+                    st.info("Geen dividendgegevens gevonden in het rekeningoverzicht.")
 
-df_spreads = laad_slimme_optiestrategieen()
+            # --- SLIMME OPTIESTRATEGIE HERKENNER ---
+            st.markdown("---")
+            st.subheader("🧠 Geautomatiseerde Optiestrategie Herkenner")
+            df_opties = df_gefilterd[df_gefilterd['Type'] == 'Optie'].copy()
+            
+            if not df_opties.empty:
+                def split_optie_naam(naam):
+                    delen = str(naam).split()
+                    if len(delen) >= 3:
+                        aandeel = delen[0]
+                        type_optie = "Call" if any("C" in d for d in delen) else "Put"
+                        expiratie = delen[-1]
+                        return pd.Series([aandeel, type_optie, expiratie])
+                    return pd.Series(["Onbekend", "Onbekend", "Onbekend"])
 
-# Mooie opmaak voor de tabel met geld-notaties
-st.dataframe(
-    df_spreads,
-    column_config={
-        "Kostenbasis (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
-        "Huidige Waarde (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
-        "Netto Resultaat (EUR)": st.column_config.NumberColumn(format="€ %.2f"),
-    },
-    use_container_width=True,
-    hide_index=True
-)
+                df_opties[['Aandeel', 'Type_Optie', 'Expiratie']] = df_opties['Product'].apply(split_optie_naam)
+                
+                gecombineerde_strategieen = []
+                for (aandeel, expiratie, type_optie), groep in df_opties.groupby(['Aandeel', 'Expiratie', 'Type_Optie']):
+                    aantal_poten = len(groep)
+                    totale_kosten = groep['Kostenbasis (EUR)'].sum()
+                    
+                    if aantal_poten >= 2:
+                        strategie_naam = f"🟢 Gecombineerde {aandeel} {type_optie} Spread (Expiratie: {expiratie})"
+                    else:
+                        strategie_naam = f"📄 Losse {aandeel} {type_optie} Poot"
+                        
+                    gecombineerde_strategieen.append({
+                        "Onderliggend": aandeel,
+                        "Expiratie": expiratie,
+                        "Berekende Strategie": strategie_naam,
+                        "Aantal Contracten": aantal_poten,
+                        "Kostenbasis Spreads (EUR)": totale_kosten
+                    })
+                st.dataframe(pd.DataFrame(gecombineerde_strategieen), use_container_width=True, hide_index=True)
+            else:
+                st.info("Selecteer 'Optie' in de zijbalk of voeg optietransacties toe om strategieën te zien.")
 
+            # --- ALGEMENE TABEL ---
+            st.markdown("---")
+            st.subheader("📋 Lopende Posities (Gehaald uit je CSV)")
+            st.dataframe(df_gefilterd, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Geen open posities kunnen herleiden uit de transactiegeschiedenis.")
+            
+    except Exception as e:
+        st.error(f"Er ging iets mis bij het verwerken van de bestanden: {e}")
+else:
+    st.info("ℹ️ **Instructie:** Exporteer je 'Transacties' en 'Rekeningoverzicht' als CSV-bestand uit je DeGiro-account en upload ze aan de linkerkant om je portfolio direct live te analyseren!")
