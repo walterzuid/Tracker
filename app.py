@@ -64,11 +64,21 @@ if transacties_file is not None and rekening_file is not None:
     try:
         # Bestanden inlezen
         df_tx = pd.read_csv(transacties_file, sep=',', encoding='utf-8')
-        df_rek = pd.read_csv(rekening_file, sep=',', encoding='utf-8')
         
-        # Kolomnamen opschonen
-        df_tx.columns = df_tx.columns.str.strip()
+        # SLIMME FIX: We hernoemen direct de naamloze kolommen van het Rekeningoverzicht
+        df_rek = pd.read_csv(rekening_file, sep=',', encoding='utf-8')
         df_rek.columns = df_rek.columns.str.strip()
+        
+        # DeGiro's indeling hermappen naar logische namen
+        kolommen = df_rek.columns.tolist()
+        if len(kolommen) >= 11:
+            kolommen[7] = 'Munt_Mutatie'
+            kolommen[8] = 'Bedrag_Mutatie'
+            kolommen[9] = 'Munt_Saldo'
+            kolommen[10] = 'Bedrag_Saldo'
+            df_rek.columns = kolommen
+        
+        df_tx.columns = df_tx.columns.str.strip()
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
 
@@ -92,8 +102,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            # GEFIXT: Haal de eerste ISIN waarde op als nette tekst
-            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -132,13 +141,17 @@ if transacties_file is not None and rekening_file is not None:
                 
         df_posities = pd.DataFrame(open_posities_lijst)
         df_gesloten = pd.DataFrame(gesloten_posities_lijst)
-        # --- BEREKENING 2: DIVIDENDEN FILTEREN ---
+        # --- BEREKENING 2: DIVIDENDEN BEREKENEN UIT DE JUISTE KOLOM ---
         df_rek['Omschrijving'] = df_rek['Omschrijving'].astype(str)
-        df_rek['Mutatie_Num'] = df_rek['Mutatie'].apply(maak_numeriek)
         
+        # Filter alle dividendregels en zet de bedragen uit de nieuwe 'Bedrag_Mutatie' kolom om
+        df_rek['Bedrag_Mutatie_Num'] = df_rek['Bedrag_Mutatie'].apply(maak_numeriek)
+        
+        # Netto dividend is de optelsom van Dividend (+) en Dividendbelasting (-)
         df_only_dividends = df_rek[df_rek['Omschrijving'].str.contains('Dividend', case=False, na=False)]
-        totaal_netto_dividend = df_only_dividends['Mutatie_Num'].sum()
+        totaal_netto_dividend = df_only_dividends['Bedrag_Mutatie_Num'].sum()
 
+        # Maak data voor de maandelijkse bruto dividendgrafiek
         df_div_cards = df_rek[df_rek['Omschrijving'] == 'Dividend'].copy()
         df_div_cards['Maand'] = pd.to_datetime(df_div_cards['Datum'], format='%d-%m-%Y', errors='coerce').dt.to_period('M').astype(str)
 
@@ -171,9 +184,9 @@ if transacties_file is not None and rekening_file is not None:
                     
                 with rechts:
                     if not df_div_cards.empty:
-                        df_div_maand = df_div_cards.groupby('Maand')['Mutatie_Num'].sum().reset_index()
+                        df_div_maand = df_div_cards.groupby('Maand')['Bedrag_Mutatie_Num'].sum().reset_index()
                         fig_div = px.bar(
-                            df_div_maand, x='Maand', y='Mutatie_Num', 
+                            df_div_maand, x='Maand', y='Bedrag_Mutatie_Num', 
                             title='Ontvangen Bruto Dividend per Maand', color_discrete_sequence=['#2ecc71']
                         )
                         st.plotly_chart(fig_div, use_container_width=True)
@@ -208,14 +221,14 @@ if transacties_file is not None and rekening_file is not None:
                             if aantal_poten == 2:
                                 aantallen = groep['Aantal'].tolist()
                                 type_optie = groep['Type_Optie'].iloc
-                                if (aantallen[0] > 0 and aantallen[1] < 0) or (aantallen[0] < 0 and aantallen[1] > 0):
+                                if (aantallen > 0 and aantallen < 0) or (aantallen < 0 and aantallen > 0):
                                     strategie_naam = f"🟢 {type_optie} Spread ({strikes_str})"
                                 else:
                                     strategie_naam = f"📦 {aandeel} Custom Spread ({strikes_str})"
                             elif aantal_poten >= 3:
                                 strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
                             else:
-                                row_opt = groep.iloc[0]
+                                row_opt = groep.iloc
                                 richting = "Long" if row_opt['Aantal'] > 0 else "Short"
                                 strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
                                 
