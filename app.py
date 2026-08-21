@@ -64,9 +64,9 @@ if transacties_file is not None and rekening_file is not None:
     try:
         # Bestanden inlezen
         df_tx = pd.read_csv(transacties_file, sep=',', encoding='utf-8')
-        
-        # SLIMME FIX: We hernoemen direct de naamloze kolommen van het Rekeningoverzicht
         df_rek = pd.read_csv(rekening_file, sep=',', encoding='utf-8')
+        
+        df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
         # DeGiro's indeling hermappen naar logische namen
@@ -77,8 +77,6 @@ if transacties_file is not None and rekening_file is not None:
             kolommen[9] = 'Munt_Saldo'
             kolommen[10] = 'Bedrag_Saldo'
             df_rek.columns = kolommen
-        
-        df_tx.columns = df_tx.columns.str.strip()
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
 
@@ -102,7 +100,7 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -141,17 +139,13 @@ if transacties_file is not None and rekening_file is not None:
                 
         df_posities = pd.DataFrame(open_posities_lijst)
         df_gesloten = pd.DataFrame(gesloten_posities_lijst)
-        # --- BEREKENING 2: DIVIDENDEN BEREKENEN UIT DE JUISTE KOLOM ---
+        # --- BEREKENING 2: DIVIDENDEN BEREKENEN ---
         df_rek['Omschrijving'] = df_rek['Omschrijving'].astype(str)
-        
-        # Filter alle dividendregels en zet de bedragen uit de nieuwe 'Bedrag_Mutatie' kolom om
         df_rek['Bedrag_Mutatie_Num'] = df_rek['Bedrag_Mutatie'].apply(maak_numeriek)
         
-        # Netto dividend is de optelsom van Dividend (+) en Dividendbelasting (-)
         df_only_dividends = df_rek[df_rek['Omschrijving'].str.contains('Dividend', case=False, na=False)]
         totaal_netto_dividend = df_only_dividends['Bedrag_Mutatie_Num'].sum()
 
-        # Maak data voor de maandelijkse bruto dividendgrafiek
         df_div_cards = df_rek[df_rek['Omschrijving'] == 'Dividend'].copy()
         df_div_cards['Maand'] = pd.to_datetime(df_div_cards['Datum'], format='%d-%m-%Y', errors='coerce').dt.to_period('M').astype(str)
 
@@ -193,7 +187,7 @@ if transacties_file is not None and rekening_file is not None:
                     else:
                         st.info("Geen dividendgegevens gevonden.")
 
-                # --- SLIMME OPTIESTRATEGIE HERKENNER ---
+                # --- SLIMME OPTIESTRATEGIE HERKENNER (WATERDICHT) ---
                 st.markdown("---")
                 st.subheader("🧠 Geautomatiseerde Optiestrategie Herkenner (Open Spreads)")
                 df_opties_open = df_gefilterd[df_gefilterd['Type'] == 'Optie'].copy()
@@ -220,15 +214,19 @@ if transacties_file is not None and rekening_file is not None:
                             
                             if aantal_poten == 2:
                                 aantallen = groep['Aantal'].tolist()
-                                type_optie = groep['Type_Optie'].iloc
-                                if (aantallen > 0 and aantallen < 0) or (aantallen < 0 and aantallen > 0):
+                                type_optie = groep['Type_Optie'].iloc[0]
+                                # WATERDICHTE LOGICA: Controleer of de tekens verschillen (Long en Short)
+                                has_long = any(x > 0 for x in aantallen)
+                                has_short = any(x < 0 for x in aantallen)
+                                
+                                if has_long and has_short:
                                     strategie_naam = f"🟢 {type_optie} Spread ({strikes_str})"
                                 else:
-                                    strategie_naam = f"📦 {aandeel} Custom Spread ({strikes_str})"
+                                    strategie_naam = f"📦 {aandeel} Custom Combination ({strikes_str})"
                             elif aantal_poten >= 3:
                                 strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
                             else:
-                                row_opt = groep.iloc
+                                row_opt = groep.iloc[0]
                                 richting = "Long" if row_opt['Aantal'] > 0 else "Short"
                                 strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
                                 
