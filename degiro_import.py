@@ -246,10 +246,13 @@ def degiro_naar_portfolio_formaat(
 
 def unieke_isins(portfolio_df: pd.DataFrame) -> pd.DataFrame:
     """Geeft een tabel met elke unieke ISIN + productnaam, als basis voor
-    de ticker-mapping."""
+    de ticker-mapping. Dedupliceert op ISIN (niet op productnaam) -- soms
+    gebruikt DeGiro voor dezelfde ISIN een net iets andere productomschrijving
+    (bv. bij een 'non-tradeable' variant tijdens een beursnotering-wijziging),
+    en die moeten toch als één ISIN behandeld worden."""
     return (
         portfolio_df[["isin", "product"]]
-        .drop_duplicates()
+        .drop_duplicates(subset="isin", keep="first")
         .sort_values("product")
         .reset_index(drop=True)
     )
@@ -266,14 +269,16 @@ def pas_ticker_mapping_toe(portfolio_df: pd.DataFrame, mapping: dict[str, str]) 
 # Opties / derivaten herkennen
 # ---------------------------------------------------------------------------
 
-# DeGiro noemt optieproducten volgens het patroon "C|P <onderliggende> <expiratiedatum> <strike>",
-# bv. "C ASML 17JAN25 700" of "P AMEDLAND 21MAR25 30". Deze tracker volgt
-# alleen aandelenposities, dus dit soort rijen wordt herkend en apart gehouden.
-_OPTIE_PATROON = re.compile(r"^\s*[CP]\s+.+\b\d{1,2}[A-Z]{3}\d{2}\b.*\d")
+# DeGiro noemt optieproducten volgens het patroon "<onderliggende> C|P<strike> <expiratiedatum>",
+# bv. "SBM C25.00 19JUN26", "AEX C980 19DEC25" of "HEY P28.00 18OKT24". Deze
+# tracker volgt alleen aandelenposities, dus dit soort rijen wordt herkend
+# en apart gehouden. Het patroon wordt overal in de productnaam gezocht
+# (niet alleen aan het begin), want de onderliggende-ticker staat ervoor.
+_OPTIE_PATROON = re.compile(r"[CP]\d+(?:[.,]\d+)?\s+\d{1,2}[A-Z]{3}\d{2}\b")
 
 
 def is_optie_transactie(product: str) -> bool:
-    return isinstance(product, str) and bool(_OPTIE_PATROON.match(product.strip()))
+    return isinstance(product, str) and bool(_OPTIE_PATROON.search(product.strip()))
 
 
 def splits_aandelen_en_opties(ruw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:

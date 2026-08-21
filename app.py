@@ -188,14 +188,22 @@ def bereken_posities(transacties: pd.DataFrame) -> pd.DataFrame:
 
 def voeg_transacties_samen(nieuw: pd.DataFrame) -> int:
     """Voegt geïmporteerde transacties toe aan de portfolio, met
-    deduplicatie op 'order_id' zodat je hetzelfde DeGiro-bestand meerdere
-    keren kunt importeren zonder dubbele posities te krijgen. Geeft het
-    aantal daadwerkelijk toegevoegde rijen terug."""
+    deduplicatie zodat je hetzelfde DeGiro-bestand meerdere keren kunt
+    importeren zonder dubbele posities te krijgen. 'order_id' alleen is
+    geen betrouwbare sleutel (DeGiro hergebruikt hetzelfde order_id bij
+    deelorders/partial fills), dus de dedup-sleutel is de combinatie van
+    datum + isin + type + aantal + prijs. Geeft het aantal daadwerkelijk
+    toegevoegde rijen terug."""
     bestaand = st.session_state.transacties
-    bestaande_order_ids = set(bestaand["order_id"].dropna()) if "order_id" in bestaand.columns else set()
+    sleutel = ["datum", "isin", "type", "aantal", "prijs"]
 
-    if "order_id" in nieuw.columns:
-        nieuw = nieuw[~nieuw["order_id"].isin(bestaande_order_ids)]
+    if bestaand.empty:
+        bestaande_sleutels = set()
+    else:
+        bestaande_sleutels = set(bestaand[sleutel].apply(tuple, axis=1))
+
+    if not nieuw.empty:
+        nieuw = nieuw[~nieuw[sleutel].apply(tuple, axis=1).isin(bestaande_sleutels)]
 
     if nieuw.empty:
         return 0
@@ -318,13 +326,19 @@ if transactie_bestand is not None:
                 lambda r: r["ticker"] or st.session_state.isin_suggesties.get(r["isin"], ""), axis=1
             )
 
-        st.sidebar.markdown("**Controleer de ticker per ISIN** (automatisch opgezochte suggesties zijn al ingevuld):")
+        st.sidebar.markdown(
+            "**Controleer de ticker per ISIN** (automatisch opgezochte suggesties zijn al ingevuld). "
+            "Laat een ticker **leeg** om die ISIN over te slaan (bv. claimrechten, "
+            "niet-verhandelbare posities of andere bijzondere boekingen)."
+        )
         bewerkte_mapping = st.sidebar.data_editor(
             isins,
             column_config={
                 "isin": st.column_config.TextColumn("ISIN", disabled=True),
                 "product": st.column_config.TextColumn("Product", disabled=True),
-                "ticker": st.column_config.TextColumn("Ticker", required=True, help="Controleer of dit klopt, met name bij automatisch opgezochte suggesties."),
+                "ticker": st.column_config.TextColumn(
+                    "Ticker", help="Leeg laten = deze ISIN overslaan bij het importeren."
+                ),
             },
             hide_index=True,
             use_container_width=True,
@@ -332,25 +346,33 @@ if transactie_bestand is not None:
         )
 
         if st.sidebar.button("✅ Bevestig mapping en importeer transacties"):
-            nieuwe_mapping = dict(zip(bewerkte_mapping["isin"], bewerkte_mapping["ticker"].str.strip().str.upper()))
-            ontbrekend = [isin for isin, ticker in nieuwe_mapping.items() if not ticker]
-            if ontbrekend:
-                st.sidebar.error(f"Vul voor elke ISIN een ticker in. Ontbreekt nog voor: {', '.join(ontbrekend)}")
+            bewerkte_mapping["ticker"] = bewerkte_mapping["ticker"].fillna("").str.strip().str.upper()
+            nieuwe_mapping = {
+                isin: ticker for isin, ticker in zip(bewerkte_mapping["isin"], bewerkte_mapping["ticker"])
+                if ticker
+            }
+            overgeslagen_isins = set(bewerkte_mapping["isin"]) - set(nieuwe_mapping.keys())
+
+            st.session_state.isin_mapping.update(nieuwe_mapping)
+            sla_isin_mapping_op(st.session_state.isin_mapping)
+
+            te_importeren = geimporteerd[~geimporteerd["isin"].isin(overgeslagen_isins)].copy()
+            te_importeren = pas_ticker_mapping_toe(te_importeren, st.session_state.isin_mapping)
+            aantal_toegevoegd = voeg_transacties_samen(te_importeren)
+
+            st.session_state.degiro_transactie_upload_teller += 1  # reset uploader
+            st.session_state.pop("isin_auto_opgezocht", None)
+            st.session_state.pop("isin_suggesties", None)
+
+            berichten = []
+            if aantal_toegevoegd:
+                berichten.append(f"{aantal_toegevoegd} nieuwe transactie(s) geïmporteerd.")
             else:
-                st.session_state.isin_mapping.update(nieuwe_mapping)
-                sla_isin_mapping_op(st.session_state.isin_mapping)
-
-                geimporteerd = pas_ticker_mapping_toe(geimporteerd, st.session_state.isin_mapping)
-                aantal_toegevoegd = voeg_transacties_samen(geimporteerd)
-
-                st.session_state.degiro_transactie_upload_teller += 1  # reset uploader
-                st.session_state.pop("isin_auto_opgezocht", None)
-                st.session_state.pop("isin_suggesties", None)
-                if aantal_toegevoegd:
-                    st.sidebar.success(f"{aantal_toegevoegd} nieuwe transactie(s) geïmporteerd.")
-                else:
-                    st.sidebar.info("Alle transacties in dit bestand waren al geïmporteerd.")
-                st.rerun()
+                berichten.append("Geen nieuwe transacties geïmporteerd (al aanwezig of overgeslagen).")
+            if overgeslagen_isins:
+                berichten.append(f"{len(overgeslagen_isins)} ISIN(s) overgeslagen (lege ticker).")
+            st.sidebar.success(" ".join(berichten))
+            st.rerun()
 
 # --- Rekeningoverzicht ---
 account_bestand = st.sidebar.file_uploader(
