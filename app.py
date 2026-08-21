@@ -9,8 +9,9 @@ st.set_page_config(page_title="DeGiro Portefeuille Tracker", layout="wide", page
 # 2. Handmatige data-input (gebaseerd op jouw spreadsheet-export)
 # Om het script direct te laten werken, laden we de belangrijkste data in via tekst-strings.
 @st.cache_data
+@st.cache_data
 def laad_posities_data():
-    # Let op de extra aanhalingstekens om "MARVELL TECHNOLOGY, INC."
+    # 1. Aandelen data
     aandelen_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
 GB00BP6MXD84,SHELL PLC,70,1831.6,2795.8,964.2,Energie
 NL0010273215,ASML HOLDING N.V.,3,1520.5,4522.8,3002.3,Technologie
@@ -44,7 +45,8 @@ US78409V1044,S&P GLOBAL INC,6,2176.01,2205.75,29.74,Financiële dienstverlening
 NL0010583399,CORBION N.V. CLASS C,40,794.4,797.6,3.20,Grondstoffen
 DE000A1K0235,SUSS MICROTEC SE,10,784.9,732.0,-52.90,Technologie
 SE0001515552,INDUTRADE AB,40,880.77,877.93,-2.84,Industrie"""
-    
+
+    # 2. ETF data
     etf_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
 IE00BQQP9F84,VANECK GOLD MINERS UCITS ETF,30,918.9,2813.4,1894.5,ETF
 IE000YYE6WK5,VANECK DEFENSE UCITS ETF,30,843.6,1712.7,869.1,ETF
@@ -56,12 +58,32 @@ NL0009272749,VANECK AEX UCITS ETF,10,917.0,1114.8,197.8,ETF
 IE000M7V94E1,VANECK URANIUM AND NUCLEAR UCITS ETF,10,433.05,461.75,28.7,ETF
 IE0002PG6CA6,VANECK RARE EARTH AND STRATEGIC METALS,40,595.4,513.2,-82.2,ETF"""
 
+    # 3. Crypto data (NIEUW) [source: 1]
+    crypto_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
+CRYPTO-ETHEREUM,ETHEREUM,0.112623,401.63,220.21,-181.42,Crypto
+CRYPTO-BITCOIN,BITCOIN,0.004181,401.48,249.32,-152.16,Crypto"""
+
+    # 4. Opties data (NIEUW - Openstaande posities) [source: 1]
+    opties_data = """ISIN,Product,Huidig aantal,Kostenbasis huidige positie (EUR),Marktwaarde (EUR),Ongerealiseerd resultaat (EUR),Sector
+NLEX01343295,NN C80.00 18DEC26,-1,-27.25,-2.32,24.93,Opties
+NLEX01447526,NN C70.00 18DEC26,1,110.75,8.84,-101.91,Opties"""
+
+    # Maak DataFrames en voeg Producttype toe
     df_aandelen = pd.read_csv(io.StringIO(aandelen_data))
     df_aandelen['Type'] = 'Aandeel'
+    
     df_etf = pd.read_csv(io.StringIO(etf_data))
     df_etf['Type'] = 'ETF'
     
-    return pd.concat([df_aandelen, df_etf], ignore_index=True)
+    df_crypto = pd.read_csv(io.StringIO(crypto_data))
+    df_crypto['Type'] = 'Crypto'
+    
+    df_opties = pd.read_csv(io.StringIO(opties_data))
+    df_opties['Type'] = 'Optie'
+    
+    # Voeg alle data samen in één grote tabel
+    return pd.concat([df_aandelen, df_etf, df_crypto, df_opties], ignore_index=True)
+
 
 df_posities = laad_posities_data()
 
