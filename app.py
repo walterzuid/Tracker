@@ -70,9 +70,9 @@ st.title("📊 DeGiro Portefeuille Rendement Tracker")
 st.caption("Peildatum: 20 augustus 2026 | Alle bedragen in EUR")
 
 # Belangrijkste cijfers berekenen (of hardcoded uit jouw spreadsheet overnemen)
-totale_kostenbasis = 45565.75 [source: 1]
-totale_marktwaarde = 71860.04 [source: 1]
-ongerealiseerd_res = 26294.29 [source: 1]
+totale_kostenbasis = 45565.75 
+totale_marktwaarde = 71860.04 
+ongerealiseerd_res = 26294.29 
 ongerealiseerd_rend = 0.5771 * 100 # 57.7% [source: 1]
 netto_resultaat = 27523.68 [source: 1]
 xirr = 0.2511 * 100 # 25.11% [source: 1]
