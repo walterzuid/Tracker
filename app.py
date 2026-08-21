@@ -59,7 +59,7 @@ def parse_optie_naam(naam):
         return True, aandeel, type_optie, strike, expiratie
     return False, None, None, 0.0, None
 
-# Centrale functie om optiestrategieën te groeperen
+# Centrale functie om optiestrategieën te groeperen en het rendement te berekenen
 def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
     optie_details = []
     for idx, row in df_opties_raw.iterrows():
@@ -88,7 +88,7 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         
         if aantal_poten == 2:
             aantallen = groep['Aantal'].tolist()
-            type_optie = groep['Type_Optie'].iloc
+            type_optie = groep['Type_Optie'].iloc[0]
             has_long = any(x > 0 for x in aantallen)
             has_short = any(x < 0 for x in aantallen)
             
@@ -99,7 +99,7 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         elif aantal_poten >= 3:
             strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
         else:
-            row_opt = groep.iloc
+            row_opt = groep.iloc[0] # GEFIXT: .iloc[0] toegevoegd
             richting = "Long" if row_opt['Aantal'] > 0 else "Short"
             strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
             
@@ -124,12 +124,10 @@ if transacties_file is not None and rekening_file is not None:
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
-        # DEFINITIEVE FIX: Hernoemen direct op basis van de echte string-namen in je CSV
+        # Hernoemen direct op basis van de echte string-namen in je CSV
         df_rek = df_rek.rename(columns={
-            'Mutatie': 'Munt_Mutatie',
-            'Unnamed: 8': 'Bedrag_Mutatie',
-            'Saldo': 'Munt_Saldo',
-            'Unnamed: 10': 'Bedrag_Saldo'
+            'Mutatie': 'Munt_Mutatie', 'Unnamed: 8': 'Bedrag_Mutatie',
+            'Saldo': 'Munt_Saldo', 'Unnamed: 10': 'Bedrag_Saldo'
         })
         
         st.success("✅ Beide bestanden succesvol ingeladen!")
@@ -152,7 +150,8 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            # GEFIXT: .iloc[0] correct gebruikt om de tekstwaarde te pakken
+            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
