@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
-import re
 
 # 1. Pagina-instellingen
 st.set_page_config(page_title="DeGiro Live Tracker", layout="wide", page_icon="📊")
@@ -15,13 +14,50 @@ st.sidebar.header("📁 DeGiro Data Upload")
 transacties_file = st.sidebar.file_uploader("Upload Transacties.csv", type=["csv"])
 rekening_file = st.sidebar.file_uploader("Upload Rekeningoverzicht.csv", type=["csv"])
 
-# Hulpmiddel om getallen uit DeGiro CSV netjes om te zetten
+# Handmatige woordenlijst om sectoren toe te wijzen op basis van Productnaam
+SECTOR_MAP = {
+    "SHELL": "Energie",
+    "ASML": "Technologie",
+    "ASM INTERNATIONAL": "Technologie",
+    "HEINEKEN": "Consumptiegoederen",
+    "ADYEN": "Financiële dienstverlening",
+    "HEIJMANS": "Bouw & Vastgoed",
+    "BAM GROEP": "Bouw & Vastgoed",
+    "EBUSCO": "Industrie",
+    "MICROSOFT": "Technologie",
+    "CADELER": "Industrie",
+    "RHEINMETALL": "Industrie",
+    "MARVELL": "Technologie",
+    "BARRICK": "Grondstoffen",
+    "IMCD": "Grondstoffen",
+    "AIRBUS": "Industrie",
+    "NSI": "Vastgoed",
+    "ASR": "Financiële dienstverlening",
+    "EXOR": "Financiële dienstverlening",
+    "EMERSON": "Industrie",
+    "GENMAB": "Gezondheidszorg",
+    "NUCOR": "Grondstoffen",
+    "MAGNUM": "Consumptiegoederen",
+    "ONDAS": "Technologie",
+    "SPACE EXPLORATION": "Industrie",
+    "SPACEX": "Industrie",
+    "SIEMENS": "Industrie",
+    "ECOLAB": "Industrie",
+    "S&P GLOBAL": "Financiële dienstverlening",
+    "CORBION": "Grondstoffen",
+    "SUSS MICROTEC": "Technologie",
+    "INDUTRADE": "Industrie",
+    "TAKEAWAY": "Consumentendiensten"
+}
+
+# Hulpmiddel om getallen uit DeGiro CSV netjes om te zetten naar Python-floats
 def maak_numeriek(val):
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
-    val_str = str(val).strip().replace('.', '').replace(',', '.')
+    # Haal aanhalingstekens weg, vervang duizendtal-punten door niets, en decimale komma's door punten
+    val_str = str(val).strip().replace('"', '').replace('.', '').replace(',', '.')
     try:
         return float(val_str)
     except ValueError:
@@ -38,36 +74,47 @@ if transacties_file is not None and rekening_file is not None:
         df_tx.columns = df_tx.columns.str.strip()
         df_rek.columns = df_rek.columns.str.strip()
         
-        st.success("✅ Beide bestanden succesvol ingeladen! Data wordt verwerkt...")
+        st.success("✅ Beide bestanden succesvol ingeladen!")
 
         # --- BEREKENING 1: POSITIES BEREKENEN UIT TRANSACTIES ---
-        df_tx['Datum_Tijd'] = pd.to_datetime(df_tx['Datum'] + ' ' + df_tx['Tijd'], errors='coerce')
+        df_tx['Datum_Tijd'] = pd.to_datetime(df_tx['Datum'] + ' ' + df_tx['Tijd'], format='%d-%m-%Y %H:%M', errors='coerce')
         df_tx = df_tx.sort_values('Datum_Tijd').reset_index(drop=True)
         
         df_tx['Aantal'] = df_tx['Aantal'].apply(maak_numeriek)
-        df_tx['Totaal (EUR)'] = df_tx['Totaal (EUR)'].apply(maak_numeriek)
+        df_tx['Waarde EUR'] = df_tx['Waarde EUR'].apply(maak_numeriek)
         
         posities_lijst = []
         for product, groep in df_tx.groupby('Product'):
             huidig_aantal = groep['Aantal'].sum()
-            totale_investering = groep[groep['Aantal'] > 0]['Totaal (EUR)'].sum()
+            # Kostenbasis is de som van alle aankopen (waar aantal positief is)
+            totale_investering = groep[groep['Aantal'] > 0]['Waarde EUR'].sum()
             
             isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
+            # Producttype bepalen
             if "UCITS" in product_str or "ETF" in product_str:
                 product_type = "ETF"
                 sector = "ETF"
             elif "CRYPTO" in str(isin) or product_str in ["BITCOIN", "ETHEREUM"]:
                 product_type = "Crypto"
                 sector = "Crypto"
-            elif any(optie_kenmerk in product_str for optie_kenmerk in [" C", " P", "CALL", "PUT"]) or len(product_str.split()) >= 3:
+            elif any(k in product_str for k in [" C", " P", "CALL", "PUT"]) or len(product_str.split()) >= 4:
                 product_type = "Optie"
                 sector = "Optie"
             else:
                 product_type = "Aandeel"
-                sector = groep['Sector'].iloc[0] if 'Sector' in groep.columns and not pd.isna(groep['Sector'].iloc[0]) else "Aandelen"
+                # Sector zoeken in de handmatige woordenlijst
+                sector = "Overig"
+                for sleutel, sector_naam in SECTOR_MAP.items():
+                    if sleutel in product_str:
+                        sector = sector_naam
+                        break
             
+            # Filter administratieve IPO-inschrijvingen eruit
+            if "SUBSCRIPTION" in product_str:
+                continue
+
             if abs(huidig_aantal) > 0.000001:
                 posities_lijst.append({
                     "Product": product,
@@ -79,15 +126,22 @@ if transacties_file is not None and rekening_file is not None:
                 })
                 
         df_posities = pd.DataFrame(posities_lijst)
-        # --- BEREKENING 2: DIVIDENDEN FILTEREN ---
-        df_div = df_rek[df_rek['Omschrijving'].str.contains('Dividend|dividend', case=False, na=False)].copy()
-        if not df_div.empty:
-            kolom_bedrag = 'Bedrag (EUR)' if 'Bedrag (EUR)' in df_div.columns else 'Netto (EUR)'
-            df_div['Netto (EUR)'] = df_div[kolom_bedrag].apply(maak_numeriek)
-            df_div['Maand'] = pd.to_datetime(df_div['Datum'], errors='coerce').dt.to_period('M').astype(str)
-            totaal_ontvangen_dividend = df_div['Netto (EUR)'].sum()
-        else:
-            totaal_ontvangen_dividend = 0.0
+                # --- BEREKENING 2: DIVIDENDEN FILTEREN ---
+        # Filter op 'Dividend' maar zorg dat we 'Dividendbelasting' eruit filteren voor het pure dividendoverzicht
+        df_rek['Omschrijving'] = df_rek['Omschrijving'].astype(str)
+        df_div_bruto = df_rek[(df_rek['Omschrijving'] == 'Dividend') & (df_rek['Mutatie'] == 'Mutatie')].copy() # Voorkom dubbeltellingen met sweep transfers
+        df_div_belasting = df_rek[df_rek['Omschrijving'] == 'Dividendbelasting'].copy()
+        
+        df_rek['Mutatie_Num'] = df_rek['Mutatie'].apply(maak_numeriek)
+        
+        # Bereken netto dividend direct uit de mutaties
+        df_only_dividends = df_rek[df_rek['Omschrijving'].str.contains('Dividend', case=False, na=False)]
+        totaal_netto_dividend = df_only_dividends['Mutatie_Num'].sum()
+
+        # Maak dividendgrafiek data
+        df_div_cards = df_rek[df_rek['Omschrijving'] == 'Dividend'].copy()
+        df_div_cards['Mutatie_Num'] = df_div_cards['Mutatie'].apply(maak_numeriek)
+        df_div_cards['Maand'] = pd.to_datetime(df_div_cards['Datum'], format='%d-%m-%Y', errors='coerce').dt.to_period('M').astype(str)
 
         # --- INTERFACE: HOOFD-KPI'S ---
         st.markdown("---")
@@ -95,7 +149,7 @@ if transacties_file is not None and rekening_file is not None:
         totale_kostenbasis = df_posities['Kostenbasis (EUR)'].sum() if not df_posities.empty else 0.0
         
         kpi1.metric(label="📉 Totale Kostenbasis (Open Posities)", value=f"€ {totale_kostenbasis:,.2f}")
-        kpi2.metric(label="💰 Totaal Dividend Ontvangen", value=f"€ {abs(totaal_ontvangen_dividend):,.2f}")
+        kpi2.metric(label="💰 Totaal Netto Dividend Ontvangen", value=f"€ {totaal_netto_dividend:,.2f}")
         kpi3.metric(label="📦 Aantal Open Producten", value=len(df_posities) if not df_posities.empty else 0)
 
         # --- LIVE FILTERS EN GRAFIEKEN ---
@@ -115,16 +169,15 @@ if transacties_file is not None and rekening_file is not None:
                 st.plotly_chart(fig_allocatie, use_container_width=True)
                 
             with rechts:
-                if not df_div.empty:
-                    df_div_maand = df_div.groupby('Maand')['Netto (EUR)'].sum().reset_index()
-                    df_div_maand['Netto (EUR)'] = df_div_maand['Netto (EUR)'].abs()
+                if not df_div_cards.empty:
+                    df_div_maand = df_div_cards.groupby('Maand')['Mutatie_Num'].sum().reset_index()
                     fig_div = px.bar(
-                        df_div_maand, x='Maand', y='Netto (EUR)', 
-                        title='Ontvangen Dividend per Maand', color_discrete_sequence=['#2ecc71']
+                        df_div_maand, x='Maand', y='Mutatie_Num', 
+                        title='Ontvangen Bruto Dividend per Maand', color_discrete_sequence=['#2ecc71']
                     )
                     st.plotly_chart(fig_div, use_container_width=True)
                 else:
-                    st.info("Geen dividendgegevens gevonden in het rekeningoverzicht.")
+                    st.info("Geen dividendgegevens gevonden.")
 
             # --- SLIMME OPTIESTRATEGIE HERKENNER ---
             st.markdown("---")
@@ -162,7 +215,7 @@ if transacties_file is not None and rekening_file is not None:
                     })
                 st.dataframe(pd.DataFrame(gecombineerde_strategieen), use_container_width=True, hide_index=True)
             else:
-                st.info("Selecteer 'Optie' in de zijbalk of voeg optietransacties toe om strategieën te zien.")
+                st.info("Geen open optieposities gedetecteerd in de gefilterde selectie.")
 
             # --- ALGEMENE TABEL ---
             st.markdown("---")
