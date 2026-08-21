@@ -92,7 +92,8 @@ if transacties_file is not None and rekening_file is not None:
             totaal_kosten = groep['Transactiekosten en/of kosten van derden EUR'].sum()
             netto_resultaat_tx = groep['Totaal EUR'].sum()
             
-            isin = groep['ISIN'].iloc if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
+            # GEFIXT: Haal de eerste ISIN waarde op als nette tekst
+            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
@@ -207,7 +208,6 @@ if transacties_file is not None and rekening_file is not None:
                             if aantal_poten == 2:
                                 aantallen = groep['Aantal'].tolist()
                                 type_optie = groep['Type_Optie'].iloc
-                                # HIER IS DE FIX: We kijken nu naar de individuele elementen in de lijst
                                 if (aantallen[0] > 0 and aantallen[1] < 0) or (aantallen[0] < 0 and aantallen[1] > 0):
                                     strategie_naam = f"🟢 {type_optie} Spread ({strikes_str})"
                                 else:
