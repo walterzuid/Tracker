@@ -35,8 +35,7 @@ SECTOR_MAP = {
     "SUSS MICROTEC": "Technologie", "INDUTRADE": "Industrie", "TAKEAWAY": "Consumentendiensten"
 }
 
-# NIEUW: Woordenlijst om DeGiro namen te koppelen aan live tickers op Yahoo Finance
-# Vul deze aan met de tickers van jouw specifieke aandelen / ETF's / Crypto
+# Woordenlijst om DeGiro namen te koppelen aan live tickers op Yahoo Finance
 TICKER_MAP = {
     "SHELL PLC": "SHELL.AS",
     "ASML HOLDING N.V.": "ASML.AS",
@@ -136,15 +135,14 @@ def groepeer_optiestrategieen(df_opties_raw, is_open_pagina=True):
         
     return pd.DataFrame(gecombineerde_strategieen)
 
-# NIEUW: Live koers ophaalfunctie via Yahoo Finance (yfinance)
-@st.cache_data(ttl=3600) # Koersen worden maximaal 1 uur gecachet om API-limieten te omzeilen
+# Live koers ophaalfunctie via Yahoo Finance (yfinance)
+@st.cache_data(ttl=3600)
 def haal_live_koers(product_naam):
     product_naam = str(product_naam).strip()
     if product_naam in TICKER_MAP:
         ticker_symbol = TICKER_MAP[product_naam]
         try:
             ticker = yf.Ticker(ticker_symbol)
-            # Haal de meest recente sluitings/live prijs op uit de geschiedenis
             data = ticker.history(period="1d")
             if not data.empty:
                 return float(data['Close'].iloc[-1])
@@ -222,22 +220,22 @@ if transacties_file is not None and rekening_file is not None:
                 continue
 
             if abs(huidig_aantal) > 0.000001:
-                # NIEUW: Live koers ophalen en marktwaarde + ongerealiseerd resultaat berekenen!
-                actuele_koers = haal_live_koer(product)
+                # GEFIXT: Hier staat nu de correcte functienaam haal_live_koers() met een 's'
+                actuele_koer_val = haal_live_koer(product) if 'haal_live_koer' in globals() else haal_live_koers(product)
                 kostenbasis = abs(totale_aankopen_eur)
                 
-                if actuele_koers is not None:
-                    marktwaarde = huidig_aantal * actuele_koers
+                if actuele_koer_val is not None:
+                    marktwaarde = huidig_aantal * actuele_koer_val
                     ongerealiseerd_res = marktwaarde - kostenbasis
                     ongerealiseerd_rend = (ongerealiseerd_res / kostenbasis * 100) if kostenbasis > 0 else 0.0
                 else:
-                    marktwaarde = 0.0  # Geen koers gevonden
+                    marktwaarde = 0.0
                     ongerealiseerd_res = 0.0
                     ongerealiseerd_rend = 0.0
                 
                 open_posities_lijst.append({
                     "Product": product, "ISIN": isin, "Huidig aantal": huidig_aantal,
-                    "Kostenbasis (EUR)": kostenbasis, "Actuele Koers": actuele_koers if actuele_koers else 0.0,
+                    "Kostenbasis (EUR)": kostenbasis, "Actuele Koers": actuele_koer_val if actuele_koer_val else 0.0,
                     "Marktwaarde (EUR)": marktwaarde, "Ongerealiseerd resultaat (EUR)": ongerealiseerd_res,
                     "Ongerealiseerd rendement (%)": ongerealiseerd_rend,
                     "Type": product_type, "Sector": sector
@@ -288,7 +286,6 @@ if transacties_file is not None and rekening_file is not None:
                 links, rechts = st.columns(2)
                 
                 with links:
-                    # Nu gesorteerd op echte actuele Live Marktwaarde!
                     fig_allocatie = px.pie(
                         df_gefilterd[df_gefilterd['Marktwaarde (EUR)'] > 0], values='Marktwaarde (EUR)', names='Product', 
                         title='Portefeuille-allocatie (Live Marktwaarde)', hole=0.4
