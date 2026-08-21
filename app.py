@@ -45,12 +45,10 @@ def maak_numeriek(val):
 # Functie om te controleren of een productnaam een optie is en de details te filteren
 def parse_optie_naam(naam):
     naam_str = str(naam).strip()
-    # Dit patroon zoekt naar patronen zoals: Ticker + Spatie + C of P + Getal + Spatie + Datum
-    # Voorbeelden: "SBM C25.00 19JUN26", "AEX C980 19DEC25", "AMG C25.00 19APR24"
-    match = re.search(r'^([A-Z0-9]+)\s+([CP])(\d+(?:\.\d+)?)\s+(.+)$', naam_str, re.IGNORECASE)
+    match = re.search(r'^([A-Z0-9\.\-\s]+)\s+([CP])(\d+(?:\.\d+)?)\s+(.+)$', naam_str, re.IGNORECASE)
     
     if match:
-        aandeel = match.group(1).upper()
+        aandeel = match.group(1).strip().upper()
         type_optie = "Call" if match.group(2).upper() == "C" else "Put"
         strike = float(match.group(3))
         expiratie = match.group(4).strip()
@@ -82,10 +80,9 @@ if transacties_file is not None and rekening_file is not None:
             huidig_aantal = groep['Aantal'].sum()
             totale_investering = groep[groep['Aantal'] > 0]['Waarde EUR'].sum()
             
-            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not grupo_isin_na else ""
+            isin = groep['ISIN'].iloc[0] if 'ISIN' in groep.columns and not groep['ISIN'].isna().all() else ""
             product_str = str(product).upper()
             
-            # Controleer via onze nieuwe slimme functie of het een optie is
             is_optie, optie_aandeel, optie_type, optie_strike, optie_exp = parse_optie_naam(product)
             
             if is_optie:
@@ -165,61 +162,64 @@ if transacties_file is not None and rekening_file is not None:
                 else:
                     st.info("Geen dividendgegevens gevonden.")
 
-            # --- SLIMME OPTIESTRATEGIE HERKENNER (VERBETERD) ---
+            # --- SLIMME OPTIESTRATEGIE HERKENNER ---
             st.markdown("---")
             st.subheader("🧠 Geautomatiseerde Optiestrategie Herkenner")
             
-            # Filter alle transacties of open posities die een optie zijn
             df_opties_open = df_gefilterd[df_gefilterd['Type'] == 'Optie'].copy()
             
             if not df_opties_open.empty:
                 optie_details = []
                 for idx, row in df_opties_open.iterrows():
                     is_optie, aandeel, type_optie, strike, expiratie = parse_optie_naam(row['Product'])
-                    optie_details.append({
-                        "Product": row['Product'],
-                        "Aandeel": aandeel,
-                        "Type_Optie": type_optie,
-                        "Strike": strike,
-                        "Expiratie": expiratie,
-                        "Kostenbasis": row['Kostenbasis (EUR)'],
-                        "Aantal": row['Huidig aantal']
-                    })
-                df_opties_parsed = pd.DataFrame(optie_details)
+                    if is_optie:
+                        optie_details.append({
+                            "Product": row['Product'],
+                            "Aandeel": aandeel,
+                            "Type_Optie": type_optie,
+                            "Strike": strike,
+                            "Expiratie": expiratie,
+                            "Kostenbasis": row['Kostenbasis (EUR)'],
+                            "Aantal": row['Huidig aantal']
+                        })
                 
-                gecombineerde_strategieen = []
-                # Groepeer op Onderliggend aandeel en Expiratiedatum om spreads te vinden
-                for (aandeel, expiratie), groep in df_opties_parsed.groupby(['Aandeel', 'Expiratie']):
-                    groep = groep.sort_values('Strike')
-                    aantal_poten = len(groep)
-                    totale_kosten = groep['Kostenbasis'].sum()
-                    strikes_str = "/".join([f"{s:.2f}" for s in groep['Strike'].tolist()])
+                if optie_details:
+                    df_opties_parsed = pd.DataFrame(optie_details)
+                    gecombineerde_strategieen = []
                     
-                    if aantal_poten == 2:
-                        aantallen = groep['Aantal'].tolist()
-                        type_optie = groep['Type_Optie'].iloc[0]
-                        if aantallen[0] > 0 and aantallen[1] < 0:
-                            strategie_naam = f"🟢 Bull {type_optie} Spread ({strikes_str})"
-                        elif aantallen[0] < 0 and aantallen[1] > 0:
-                            strategie_naam = f"🔴 Bear {type_optie} Spread ({strikes_str})"
-                        else:
-                            strategie_naam = f"📦 {aandeel} Custom Spread ({strikes_str})"
-                    elif aantal_poten >= 3:
-                        strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
-                    else:
-                        row_opt = groep.iloc[0]
-                        richting = "Long" if row_opt['Aantal'] > 0 else "Short"
-                        strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
+                    for (aandeel, expiratie), groep in df_opties_parsed.groupby(['Aandeel', 'Expiratie']):
+                        groep = groep.sort_values('Strike')
+                        aantal_poten = len(groep)
+                        totale_kosten = groep['Kostenbasis'].sum()
+                        strikes_str = "/".join([f"{s:.2f}" for s in groep['Strike'].tolist()])
                         
-                    gecombineerde_strategieen.append({
-                        "Onderliggend": aandeel,
-                        "Expiratie": expiratie,
-                        "Herkende Strategie": strategie_naam,
-                        "Aantal Contracten": aantal_poten,
-                        "Totale Kostenbasis (EUR)": totale_kosten
-                    })
-                
-                st.dataframe(pd.DataFrame(gecombineerde_strategieen), use_container_width=True, hide_index=True)
+                        if aantal_poten == 2:
+                            aantallen = groep['Aantal'].tolist()
+                            type_optie = groep['Type_Optie'].iloc[0]
+                            if aantallen[0] > 0 and aantallen[1] < 0:
+                                strategie_naam = f"🟢 Bull {type_optie} Spread ({strikes_str})"
+                            elif aantallen[0] < 0 and aantallen[1] > 0:
+                                strategie_naam = f"🔴 Bear {type_optie} Spread ({strikes_str})"
+                            else:
+                                strategie_naam = f"📦 {aandeel} Custom Spread ({strikes_str})"
+                        elif aantal_poten >= 3:
+                            strategie_naam = f"🦋 Geavanceerde {aandeel} Vlinder/Ratio Spread ({strikes_str})"
+                        else:
+                            row_opt = groep.iloc[0]
+                            richting = "Long" if row_opt['Aantal'] > 0 else "Short"
+                            strategie_naam = f"📄 Losse {richting} {row_opt['Type_Optie']} {row_opt['Strike']:.2f}"
+                            
+                        gecombineerde_strategieen.append({
+                            "Onderliggend": aandeel,
+                            "Expiratie": expiratie,
+                            "Herkende Strategie": strategie_naam,
+                            "Aantal Contracten": aantal_poten,
+                            "Totale Kostenbasis (EUR)": totale_kosten
+                        })
+                    
+                    st.dataframe(pd.DataFrame(gecombineerde_strategieen), use_container_width=True, hide_index=True)
+                else:
+                    st.info("Geen geldige optieposities kunnen ontleden.")
             else:
                 st.info("Geen open optieposities gedetecteerd in de gefilterde selectie.")
 
@@ -233,4 +233,4 @@ if transacties_file is not None and rekening_file is not None:
     except Exception as e:
         st.error(f"Er ging iets mis bij het verwerken van de bestanden: {e}")
 else:
-    st.info("ℹ️ **Instructie:** Exporteer je 'Transacties' en 'Rekeningoverzicht' als CSV-bestand uit je DeGiro-account und upload ze aan de linkerkant.")
+    st.info("ℹ️ **Instructie:** Exporteer je 'Transacties' en 'Rekeningoverzicht' als CSV-bestand uit je DeGiro-account en upload ze aan de linkerkant.")
